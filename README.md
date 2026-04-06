@@ -1,5 +1,12 @@
 # ncs-sidewalk-demo-application
 
+# For info on web service: https://github.com/hlord2000/Sidewalk_Demo_Web_BLE
+
+Required items:
+ - nRF54L15 XIAO -  https://www.seeedstudio.com/XIAO-nRF54L15-p-6493.html
+ - Wio-SX1262 for XIAO - https://www.seeedstudio.com/Wio-SX1262-for-XIAO-p-6379.html
+ - Battery (optional)
+
 Standalone nRF Connect SDK application repository for the Sidewalk demo setup.
 
 The repository is intentionally shaped like
