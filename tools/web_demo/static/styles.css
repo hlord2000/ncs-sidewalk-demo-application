@@ -78,6 +78,13 @@ button:active {
   box-shadow: none;
 }
 
+.ghost-button--link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .page-shell,
 .login-shell {
   min-height: 100vh;
@@ -166,11 +173,20 @@ button:active {
   flex: 0 0 auto;
 }
 
+.topbar-actions--stack {
+  display: grid;
+  gap: 0.6rem;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 1rem;
   align-items: start;
+}
+
+.grid-admin .panel {
+  grid-column: span 6;
 }
 
 .panel {
@@ -190,6 +206,37 @@ button:active {
 
 .panel-head {
   margin-bottom: 1rem;
+}
+
+.flash-stack {
+  display: grid;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.flash-box {
+  border-radius: var(--radius-small);
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.flash-box--success {
+  color: var(--success);
+  background: rgba(20, 125, 100, 0.1);
+  border-color: rgba(20, 125, 100, 0.2);
+}
+
+.flash-box--warning {
+  color: #9a6700;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
+.flash-box--error {
+  color: var(--warn);
+  background: #fff1ed;
+  border-color: rgba(181, 71, 50, 0.16);
 }
 
 .eyebrow {
@@ -225,6 +272,10 @@ button:active {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+}
+
+.inline-fields--triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .console-actions {
@@ -378,6 +429,59 @@ textarea {
   word-break: break-word;
 }
 
+.table-wrap {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 48rem;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.85rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table th {
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.table-actions form {
+  margin: 0;
+}
+
+.table-actions button,
+.link-button {
+  min-height: 2.35rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.92rem;
+}
+
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: var(--accent-strong);
+  background: rgba(0, 169, 206, 0.08);
+  border: 1px solid rgba(0, 169, 206, 0.16);
+}
+
 .event-card--fresh {
   border-color: rgba(0, 169, 206, 0.4);
   box-shadow: 0 0 0 1px rgba(0, 169, 206, 0.12) inset;
@@ -444,6 +548,7 @@ textarea {
 
   .topbar-actions,
   .topbar-actions button,
+  .topbar-actions a,
   .inline-actions button,
   .inline-actions input {
     width: 100%;
@@ -466,6 +571,10 @@ textarea {
 
   .console-actions {
     justify-content: stretch;
+  }
+
+  .data-table {
+    min-width: 38rem;
   }
 
   .terminal {
