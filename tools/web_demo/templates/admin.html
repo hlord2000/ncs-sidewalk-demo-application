@@ -3,21 +3,50 @@
 {% block body %}
 <main class="page-shell">
   <header class="topbar">
-    <div class="hero-copy">
-      <p class="eyebrow">Nordic Semiconductor Demo</p>
-      <h1>Admin Control Plane</h1>
-      <p class="muted">Create customer accounts, track devices, and generate provisioning JSON for new Sidewalk endpoints.</p>
-      <div class="hero-meta">
-        <span>Admin <code>{{ user.email }}</code></span>
-        <span>Customers <code>{{ customers|length }}</code></span>
-        <span>Devices <code>{{ devices|length }}</code></span>
+    <div class="topbar-head">
+      <a class="brand-home" href="https://www.nordicsemi.com/" target="_blank" rel="noreferrer">
+        <span class="brand-mark">
+          <img src="{{ url_for('static', filename='assets/nordic-logo.svg', v='20260406nordic') }}" alt="Nordic Semiconductor">
+        </span>
+        <span>
+          <span class="eyebrow">Nordic Semiconductor</span>
+          <strong class="brand-title">Admin Control Plane</strong>
+        </span>
+      </a>
+      <div class="topbar-actions topbar-actions--stack">
+        <a class="ghost-button ghost-button--link" href="{{ url_for('dashboard') }}">Dashboard</a>
+        <form method="post" action="{{ url_for('logout') }}">
+          <button class="ghost-button" type="submit">Sign Out</button>
+        </form>
       </div>
     </div>
-    <div class="topbar-actions topbar-actions--stack">
-      <a class="ghost-button ghost-button--link" href="{{ url_for('dashboard') }}">Dashboard</a>
-      <form method="post" action="{{ url_for('logout') }}">
-        <button class="ghost-button" type="submit">Sign Out</button>
-      </form>
+
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow">Administrative tools</p>
+        <h1>Manage accounts, device inventory, and provisioning files.</h1>
+        <p class="muted">Create customer access, register Sidewalk devices in AWS, and download the artifacts needed for Nordic-side manufacturing and onboarding.</p>
+        <div class="hero-meta">
+          <span>Admin <code>{{ user.email }}</code></span>
+          <span>Customers <code>{{ customers|length }}</code></span>
+          <span>Devices <code>{{ devices|length }}</code></span>
+        </div>
+      </div>
+
+      <div class="hero-stats">
+        <div class="metric-card">
+          <span class="metric-label">Customer Accounts</span>
+          <strong class="metric-value">{{ customers|length }}</strong>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label">Tracked Devices</span>
+          <strong class="metric-value">{{ devices|length }}</strong>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label">Provisioning</span>
+          <strong class="metric-value">AWS + Nordic</strong>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -34,6 +63,7 @@
   <section class="grid grid-admin">
     <article class="panel">
       <div class="panel-head">
+        <p class="eyebrow">Accounts</p>
         <h2>Create Customer</h2>
         <p class="muted">Customer logins are stored locally and can only access their assigned devices.</p>
       </div>
@@ -60,6 +90,7 @@
 
     <article class="panel">
       <div class="panel-head">
+        <p class="eyebrow">Provisioning</p>
         <h2>Create AWS Sidewalk Device</h2>
         <p class="muted">Creates the cloud-side wireless device, tracks it locally, and stores provisioning JSON for download.</p>
       </div>
@@ -103,6 +134,7 @@
 
     <article class="panel panel-wide">
       <div class="panel-head">
+        <p class="eyebrow">Inventory</p>
         <h2>Import Existing Device</h2>
         <p class="muted">Use this for devices that already exist in AWS IoT Core for Amazon Sidewalk.</p>
       </div>
@@ -156,6 +188,7 @@
 
     <article class="panel panel-wide">
       <div class="panel-head">
+        <p class="eyebrow">Accounts</p>
         <h2>Customers</h2>
         <p class="muted">Track customer credentials and which devices are assigned to them.</p>
       </div>
@@ -189,6 +222,7 @@
 
     <article class="panel panel-wide">
       <div class="panel-head">
+        <p class="eyebrow">Inventory</p>
         <h2>Tracked Devices</h2>
         <p class="muted">Download provisioning files for Nordic manufacturing or assign devices to customer accounts.</p>
       </div>
@@ -231,5 +265,10 @@
       </div>
     </article>
   </section>
+
+  <footer class="nordic-footer">
+    <span>Nordic Semiconductor demo environment</span>
+    <span>Administrative inventory and provisioning</span>
+  </footer>
 </main>
 {% endblock %}
