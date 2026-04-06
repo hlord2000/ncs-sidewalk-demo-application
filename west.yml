@@ -1,0 +1,16 @@
+manifest:
+  remotes:
+    - name: ncs
+      url-base: https://github.com/nrfconnect
+
+  projects:
+    - name: nrf
+      remote: ncs
+      repo-path: sdk-nrf
+      revision: v3.0.0
+      import: true
+
+    - name: sidewalk
+      remote: ncs
+      repo-path: sdk-sidewalk
+      revision: v1.1.0-add-on

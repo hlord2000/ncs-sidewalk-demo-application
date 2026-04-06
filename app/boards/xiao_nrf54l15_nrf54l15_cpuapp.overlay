@@ -1,0 +1,74 @@
+/*
+ * Copyright (c) 2026
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+#include <zephyr/dt-bindings/lora_lbm/sx126x.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/ {
+	chosen {
+		zephyr,lora-transceiver = &lora_semtech_sx126xmb2xxs;
+	};
+
+	aliases {
+		lora-transceiver = &lora_semtech_sx126xmb2xxs;
+	};
+};
+
+&buttons {
+	debounce-interval-ms = <30>;
+
+	sidewalk_trigger_btn: sidewalk_trigger_btn {
+		gpios = <&gpio1 4 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		label = "Sidewalk Trigger";
+		zephyr,code = <INPUT_KEY_0>;
+	};
+};
+
+arduino_spi: &spi00 {
+	status = "okay";
+	cs-gpios = <&xiao_d 4 GPIO_ACTIVE_LOW>;
+
+	lora_semtech_sx126xmb2xxs: lora@0 {
+		compatible = "semtech,sx1262-new";
+		reg = <0>;
+		spi-max-frequency = <DT_FREQ_M(8)>;
+
+		reset-gpios = <&xiao_d 2 GPIO_ACTIVE_LOW>;
+		busy-gpios = <&xiao_d 3 GPIO_ACTIVE_HIGH>;
+		dio1-gpios = <&xiao_d 1 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+		dio2-as-rf-switch;
+
+		dio3-as-tcxo-control;
+		tcxo-voltage = <SX126X_TCXO_SUPPLY_3_0V>;
+		tcxo-wakeup-time = <5>;
+
+		reg-mode = <SX126X_REG_MODE_DCDC>;
+	};
+};
+
+&adc {
+	status = "disabled";
+};
+
+&i2c22 {
+	status = "disabled";
+};
+
+&i2c30 {
+	status = "disabled";
+};
+
+&lsm6ds3tr_c {
+	status = "disabled";
+};
+
+&pdm20 {
+	status = "disabled";
+};
+
+&uart21 {
+	status = "disabled";
+};

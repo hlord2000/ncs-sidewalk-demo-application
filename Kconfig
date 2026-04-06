@@ -1,0 +1,6 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+
+# Zephyr module Kconfig entry point for the standalone demo repository.
+# Module-level options can be added here later if the repository grows custom
+# libraries or drivers outside the application itself.

@@ -1,0 +1,10 @@
+build/
+**/build/
+.west/
+.venv/
+__pycache__/
+*.pyc
+*.log
+.env
+.env.*
+!tools/web_demo/.env.example
