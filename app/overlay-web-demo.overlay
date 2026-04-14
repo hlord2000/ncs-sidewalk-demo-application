@@ -2,17 +2,10 @@
  * Copyright (c) 2026
  *
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ *
+ * Intentionally empty.
+ *
+ * The XIAO board default keeps zephyr,console and zephyr,shell-uart on uart20,
+ * which is exposed through the CMSIS-DAP USB serial bridge. The web shell uses
+ * the dedicated Bluetooth NUS shell backend instead of hijacking the main UART.
  */
-
-/ {
-	chosen {
-		zephyr,console = &bt_nus_console_uart;
-		zephyr,shell-uart = &bt_nus_console_uart;
-	};
-
-	bt_nus_console_uart: bt_nus_console_uart {
-		compatible = "zephyr,nus-uart";
-		rx-fifo-size = <2048>;
-		tx-fifo-size = <2048>;
-	};
-};
