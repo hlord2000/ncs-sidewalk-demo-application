@@ -94,6 +94,8 @@ static void on_sidewalk_status_changed(const struct sid_status *status, void *co
 		LOG_ERR("Send event err %d", err);
 	}
 
+	input_trigger_on_status_changed(status);
+
 	LOG_INF("Device %sregistered, Time Sync %s, Link status: {BLE: %s, FSK: %s, LoRa: %s}",
 		(SID_STATUS_REGISTERED == status->detail.registration_status) ? "Is " : "Un",
 		(SID_STATUS_TIME_SYNCED == status->detail.time_sync_status) ? "Success" : "Fail",

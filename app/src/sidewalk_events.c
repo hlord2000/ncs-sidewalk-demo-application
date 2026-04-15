@@ -5,6 +5,8 @@
  */
 
 #include "json_printer/sidTypes2str.h"
+#include <stdbool.h>
+#include <sid_900_cfg.h>
 #include <sidewalk.h>
 #include <sid_error.h>
 #include <app_mfg_config.h>
@@ -36,6 +38,78 @@
 #endif /* CONFIG_SIDEWALK_FILE_TRANSFER_DFU */
 
 LOG_MODULE_REGISTER(sidewalk_events, CONFIG_SIDEWALK_LOG_LEVEL);
+
+#if CONFIG_SID_END_DEVICE_AUTO_CONN_REQ
+static void configure_auto_connect_policy(sidewalk_ctx_t *sid)
+{
+	static const struct sid_link_auto_connect_params link_params[] = {
+		{
+			.link_type = SID_LINK_TYPE_1,
+			.enable = true,
+			.priority = 0,
+			.connection_attempt_timeout_seconds = 30,
+		},
+		{
+			.link_type = SID_LINK_TYPE_2,
+			.enable = true,
+			.priority = 1,
+			.connection_attempt_timeout_seconds = 120,
+		},
+		{
+			.link_type = SID_LINK_TYPE_3,
+			.enable = true,
+			.priority = 2,
+			.connection_attempt_timeout_seconds = 120,
+		},
+	};
+	enum sid_link_connection_policy set_policy = SID_LINK_CONNECTION_POLICY_AUTO_CONNECT;
+	sid_error_t e;
+
+	if ((sid == NULL) || (sid->handle == NULL)) {
+		return;
+	}
+
+	e = sid_option(sid->handle, SID_OPTION_SET_LINK_CONNECTION_POLICY, &set_policy,
+		       sizeof(set_policy));
+	if (e) {
+		LOG_ERR("sid option link policy err %d (%s)", (int)e, SID_ERROR_T_STR(e));
+		return;
+	}
+
+	for (size_t i = 0; i < ARRAY_SIZE(link_params); i++) {
+		struct sid_link_auto_connect_params params = link_params[i];
+
+		if ((sid->config.link_mask & params.link_type) == 0U) {
+			continue;
+		}
+
+		e = sid_option(sid->handle, SID_OPTION_SET_LINK_POLICY_AUTO_CONNECT_PARAMS, &params,
+			       sizeof(params));
+		if (e) {
+			LOG_ERR("sid auto-connect params err %d (%s) for link 0x%x", (int)e,
+				SID_ERROR_T_STR(e), (unsigned int)params.link_type);
+		}
+	}
+
+#ifdef CONFIG_SIDEWALK_SUBGHZ_SUPPORT
+	if ((sid->config.link_mask & SID_LINK_TYPE_2) != 0U) {
+		struct sid_link_type_2_gw_discovery_policy_config fsk_policy = {
+			.policy =
+				SID_LINK_TYPE_2_GW_DISCOVERY_POLICY_OPTIMIZED_FOR_RELIABLE_CONNECTION,
+			.policy_params = NULL,
+			.is_set = true,
+		};
+
+		e = sid_option(sid->handle, SID_OPTION_LINK_TYPE_2_GW_DISCOVERY_POLICY,
+			       &fsk_policy, sizeof(fsk_policy));
+		if (e) {
+			LOG_ERR("sid FSK gateway discovery policy err %d (%s)", (int)e,
+				SID_ERROR_T_STR(e));
+		}
+	}
+#endif
+}
+#endif
 
 static const char *link_mask_to_str(uint32_t link_mask)
 {
@@ -173,29 +247,7 @@ void sidewalk_event_autostart(sidewalk_ctx_t *sid, void *ctx)
 	}
 
 #if CONFIG_SID_END_DEVICE_AUTO_CONN_REQ
-	if (sid->config.link_mask & SID_LINK_TYPE_1) {
-		enum sid_link_connection_policy set_policy =
-			SID_LINK_CONNECTION_POLICY_AUTO_CONNECT;
-
-		e = sid_option(sid->handle, SID_OPTION_SET_LINK_CONNECTION_POLICY, &set_policy,
-			       sizeof(set_policy));
-		if (e) {
-			LOG_ERR("sid option multi link manager err %d", (int)e);
-		}
-
-		struct sid_link_auto_connect_params ac_params = {
-			.link_type = SID_LINK_TYPE_1,
-			.enable = true,
-			.priority = 0,
-			.connection_attempt_timeout_seconds = 30
-		};
-
-		e = sid_option(sid->handle, SID_OPTION_SET_LINK_POLICY_AUTO_CONNECT_PARAMS,
-			       &ac_params, sizeof(ac_params));
-		if (e) {
-			LOG_ERR("sid option multi link policy err %d", (int)e);
-		}
-	}
+	configure_auto_connect_policy(sid);
 #endif /* CONFIG_SID_END_DEVICE_AUTO_CONN_REQ */
 #ifdef CONFIG_SIDEWALK_FILE_TRANSFER_DFU
 	int dfu_err = boot_write_img_confirmed();
@@ -317,31 +369,7 @@ void sidewalk_event_link_switch(sidewalk_ctx_t *sid, void *ctx)
 		LOG_ERR("sid start err %d (%s)", (int)e, SID_ERROR_T_STR(e));
 	}
 #if CONFIG_SID_END_DEVICE_AUTO_CONN_REQ
-	if (sid->config.link_mask & SID_LINK_TYPE_1) {
-		enum sid_link_connection_policy set_policy =
-			SID_LINK_CONNECTION_POLICY_AUTO_CONNECT;
-
-		e = sid_option(sid->handle, SID_OPTION_SET_LINK_CONNECTION_POLICY, &set_policy,
-			       sizeof(set_policy));
-		if (e) {
-			LOG_ERR("sid option multi link manager err %d (%s)", (int)e,
-				SID_ERROR_T_STR(e));
-		}
-
-		struct sid_link_auto_connect_params ac_params = {
-			.link_type = SID_LINK_TYPE_1,
-			.enable = true,
-			.priority = 0,
-			.connection_attempt_timeout_seconds = 30
-		};
-
-		e = sid_option(sid->handle, SID_OPTION_SET_LINK_POLICY_AUTO_CONNECT_PARAMS,
-			       &ac_params, sizeof(ac_params));
-		if (e) {
-			LOG_ERR("sid option multi link policy err %d (%s)", (int)e,
-				SID_ERROR_T_STR(e));
-		}
-	}
+	configure_auto_connect_policy(sid);
 #endif /* CONFIG_SID_END_DEVICE_AUTO_CONN_REQ */
 }
 

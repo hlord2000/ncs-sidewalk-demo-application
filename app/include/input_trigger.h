@@ -11,6 +11,8 @@
 
 int input_trigger_init(void);
 
+void input_trigger_on_status_changed(const struct sid_status *status);
+
 void input_trigger_on_msg_sent(const struct sid_msg_desc *msg_desc);
 
 void input_trigger_on_send_error(const struct sid_msg_desc *msg_desc);

@@ -37,23 +37,20 @@ static const struct gpio_dt_spec blink_led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gp
 static struct k_work button_send_work;
 static struct k_work_delayable led_blink_work;
 static atomic_t button_send_busy = ATOMIC_INIT(0);
+static atomic_t button_send_pending = ATOMIC_INIT(0);
 static atomic_t button_msg_id = ATOMIC_INIT(0);
 static uint8_t blink_toggles_remaining;
 static bool blink_led_on;
 
-static void free_button_send_ctx(void *ctx)
+static bool sidewalk_ready_for_button_send(const sidewalk_ctx_t *sid)
 {
-	sidewalk_msg_t *msg = (sidewalk_msg_t *)ctx;
-
-	if (msg == NULL) {
-		return;
+	if ((sid == NULL) || (sid->handle == NULL)) {
+		return false;
 	}
 
-	if (msg->msg.data != NULL) {
-		sid_hal_free(msg->msg.data);
-	}
-
-	sid_hal_free(msg);
+	return ((sid->last_status.state == SID_STATE_READY) ||
+		(sid->last_status.state == SID_STATE_SECURE_CHANNEL_READY)) &&
+	       (sid->last_status.detail.link_status_mask != 0U);
 }
 
 static uint8_t link_type_to_blink_count(uint32_t link_type)
@@ -114,69 +111,74 @@ static void start_led_blink(uint8_t blink_count)
 	k_work_reschedule(&led_blink_work, K_NO_WAIT);
 }
 
+static void request_sidewalk_uplink(sidewalk_ctx_t *sid)
+{
+	if ((sid->config.link_mask & SID_LINK_TYPE_1) == 0U) {
+		return;
+	}
+
+	if ((sid->last_status.detail.link_status_mask & SID_LINK_TYPE_1) != 0U) {
+		return;
+	}
+
+	sid_error_t err = sid_ble_bcn_connection_request(sid->handle, true);
+
+	if ((err != SID_ERROR_NONE) && (err != SID_ERROR_ALREADY_EXISTS)) {
+		LOG_ERR("Button connection request failed: %d (%s)", (int)err, SID_ERROR_T_STR(err));
+	}
+}
+
 static void button_send_event(sidewalk_ctx_t *sid, void *ctx)
 {
-	sidewalk_msg_t *msg = (sidewalk_msg_t *)ctx;
+	ARG_UNUSED(ctx);
+	static const char payload[] = BUTTON_PAYLOAD;
+	struct sid_msg msg = {
+		.size = sizeof(payload) - 1U,
+		.data = (void *)payload,
+	};
+	struct sid_msg_desc desc = {
+		.type = SID_MSG_TYPE_NOTIFY,
+		.link_type = SID_LINK_TYPE_ANY,
+		.link_mode = SID_LINK_MODE_CLOUD,
+	};
 
 	if ((sid == NULL) || (sid->handle == NULL)) {
 		LOG_WRN("Ignoring button send while Sidewalk is not started");
+		atomic_clear(&button_send_pending);
 		atomic_clear(&button_send_busy);
 		return;
 	}
 
-	if (msg == NULL) {
-		LOG_ERR("Button send context is NULL");
-		atomic_clear(&button_send_busy);
+	if (!sidewalk_ready_for_button_send(sid)) {
+		atomic_set(&button_send_pending, 1);
+		request_sidewalk_uplink(sid);
+		LOG_INF("Button send queued until any Sidewalk uplink becomes ready");
 		return;
 	}
 
-	sid_error_t err = sid_put_msg(sid->handle, &msg->msg, &msg->desc);
+	sid_error_t err = sid_put_msg(sid->handle, &msg, &desc);
 
 	if (err != SID_ERROR_NONE) {
 		LOG_ERR("Button send failed: %d (%s)", (int)err, SID_ERROR_T_STR(err));
+		atomic_clear(&button_send_pending);
 		atomic_clear(&button_send_busy);
 		return;
 	}
 
-	atomic_set(&button_msg_id, msg->desc.id);
-	LOG_INF("Button Sidewalk send queued on ANY link, id=%u", msg->desc.id);
+	atomic_clear(&button_send_pending);
+	atomic_set(&button_msg_id, desc.id);
+	LOG_INF("Button Sidewalk send queued on ANY link, id=%u", desc.id);
 }
 
 static void button_send_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
 
-	static const char payload[] = BUTTON_PAYLOAD;
+	int err = sidewalk_event_send(button_send_event, NULL, NULL);
 
-	sidewalk_msg_t *msg = sid_hal_malloc(sizeof(*msg));
-
-	if (msg == NULL) {
-		LOG_ERR("Failed to allocate button send context");
-		atomic_clear(&button_send_busy);
-		return;
-	}
-
-	memset(msg, 0, sizeof(*msg));
-
-	msg->msg.size = sizeof(payload) - 1U;
-	msg->msg.data = sid_hal_malloc(msg->msg.size);
-	if (msg->msg.data == NULL) {
-		LOG_ERR("Failed to allocate button send payload");
-		sid_hal_free(msg);
-		atomic_clear(&button_send_busy);
-		return;
-	}
-
-	memcpy(msg->msg.data, payload, msg->msg.size);
-
-	msg->desc.type = SID_MSG_TYPE_NOTIFY;
-	msg->desc.link_type = SID_LINK_TYPE_ANY;
-	msg->desc.link_mode = SID_LINK_MODE_CLOUD;
-
-	int err = sidewalk_event_send(button_send_event, msg, free_button_send_ctx);
 	if (err != 0) {
 		LOG_ERR("Failed to enqueue button send event: %d", err);
-		free_button_send_ctx(msg);
+		atomic_clear(&button_send_pending);
 		atomic_clear(&button_send_busy);
 	}
 }
@@ -228,6 +230,31 @@ int input_trigger_init(void)
 	return 0;
 }
 
+void input_trigger_on_status_changed(const struct sid_status *status)
+{
+	int err;
+
+	if ((status == NULL) || !atomic_get(&button_send_busy) || !atomic_get(&button_send_pending)) {
+		return;
+	}
+
+	if (((status->state != SID_STATE_READY) &&
+	     (status->state != SID_STATE_SECURE_CHANNEL_READY)) ||
+	    (status->detail.link_status_mask == 0U)) {
+		return;
+	}
+
+	if (!atomic_cas(&button_send_pending, 1, 0)) {
+		return;
+	}
+
+	err = k_work_submit(&button_send_work);
+	if (err < 0) {
+		LOG_ERR("Failed to submit queued button send: %d", err);
+		atomic_clear(&button_send_busy);
+	}
+}
+
 void input_trigger_on_msg_sent(const struct sid_msg_desc *msg_desc)
 {
 	uint16_t expected_id = (uint16_t)atomic_get(&button_msg_id);
@@ -258,6 +285,7 @@ void input_trigger_on_send_error(const struct sid_msg_desc *msg_desc)
 	}
 
 	atomic_clear(&button_msg_id);
+	atomic_clear(&button_send_pending);
 	atomic_clear(&button_send_busy);
 }
 
@@ -266,6 +294,11 @@ void input_trigger_on_send_error(const struct sid_msg_desc *msg_desc)
 int input_trigger_init(void)
 {
 	return 0;
+}
+
+void input_trigger_on_status_changed(const struct sid_status *status)
+{
+	ARG_UNUSED(status);
 }
 
 void input_trigger_on_msg_sent(const struct sid_msg_desc *msg_desc)

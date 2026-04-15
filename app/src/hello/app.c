@@ -186,6 +186,8 @@ static void on_sidewalk_status_changed(const struct sid_status *status, void *co
 		LOG_ERR("Send event err %d", err);
 	}
 
+	input_trigger_on_status_changed(status);
+
 	application_state_registered(&global_state_notifier,
 				     status->detail.registration_status == SID_STATUS_REGISTERED);
 	application_state_time_sync(&global_state_notifier,

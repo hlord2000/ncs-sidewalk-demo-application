@@ -48,7 +48,9 @@ void sidewalk_start(sidewalk_ctx_t *context);
 
 int sidewalk_event_send(event_handler_t event, void *ctx, ctx_free free);
 
-#if defined(CONFIG_SID_END_DEVICE_PROP_RADIO) && defined(CONFIG_SIDEWALK_SUBGHZ_SUPPORT)
+#if defined(CONFIG_SID_END_DEVICE_DEFAULT_ALL_LINKS)
+#define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_1 | SID_LINK_TYPE_2 | SID_LINK_TYPE_3)
+#elif defined(CONFIG_SID_END_DEVICE_PROP_RADIO) && defined(CONFIG_SIDEWALK_SUBGHZ_SUPPORT)
 #define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_1 | SID_LINK_TYPE_2 | SID_LINK_TYPE_3)
 #elif defined(CONFIG_SIDEWALK_LINK_MASK_BLE)
 #define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_1)

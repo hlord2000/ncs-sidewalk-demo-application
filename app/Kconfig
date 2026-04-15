@@ -53,6 +53,15 @@ config SID_END_DEVICE_PROP_RADIO
 	  Adds raw LoRa shell controls that temporarily take ownership of the
 	  SX1262 PAL radio while the Sidewalk LoRa link is paused.
 
+config SID_END_DEVICE_DEFAULT_ALL_LINKS
+	bool "Start BLE, FSK, and LoRa by default"
+	depends on SIDEWALK_SUBGHZ_SUPPORT
+	help
+	  Use a combined default link mask during autostart so the endpoint
+	  immediately brings up BLE and both Sub-GHz links. This keeps the stock
+	  Sidewalk radio initialization path intact and only changes the initial
+	  selected link mask.
+
 if SID_END_DEVICE_CLI
 
 config SHELL_CMD_BUFF_SIZE
@@ -82,6 +91,12 @@ config SID_END_DEVICE_AUTO_START
 config SID_END_DEVICE_AUTO_CONN_REQ
     default y
     bool "Enable automatic connection request before message send"
+
+config SIDEWALK_BUTTONS
+	default n if SID_END_DEVICE_DEFAULT_ALL_LINKS
+
+config SIDEWALK_CRITICAL_REGION_RE_ENTRY_MAX
+	default 128 if SID_END_DEVICE_DEFAULT_ALL_LINKS
 
 config SID_END_DEVICE_PERSISTENT_LINK_MASK
     bool "Enable persitent link mask"
