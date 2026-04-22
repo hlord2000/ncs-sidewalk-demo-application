@@ -1,0 +1,1095 @@
+diff --git a/boards/seeed/xiao_nrf54l15/Kconfig.defconfig b/boards/seeed/xiao_nrf54l15/Kconfig.defconfig
+new file mode 100644
+index 00000000000..9dae62ca040
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/Kconfig.defconfig
+@@ -0,0 +1,8 @@
++# Copyright (c) 2025 Seeed Technology Co., Ltd.
++# SPDX-License-Identifier: Apache-2.0
++if BOARD_XIAO_NRF54L15_NRF54L15_CPUAPP
++
++config HAS_BT_CTLR
++	default BT
++
++endif # BOARD_XIAO_NRF54L15_NRF54L15_CPUAPP
+diff --git a/boards/seeed/xiao_nrf54l15/Kconfig.xiao_nrf54l15 b/boards/seeed/xiao_nrf54l15/Kconfig.xiao_nrf54l15
+new file mode 100644
+index 00000000000..bd54b0bb79a
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/Kconfig.xiao_nrf54l15
+@@ -0,0 +1,7 @@
++# Copyright (c) 2025 Seeed Technology Co., Ltd.
++# SPDX-License-Identifier: Apache-2.0
++config BOARD_XIAO_NRF54L15
++	select SOC_NRF54L15_CPUAPP if BOARD_XIAO_NRF54L15_NRF54L15_CPUAPP
++	select SOC_NRF54L15_CPUFLPR if \
++		BOARD_XIAO_NRF54L15_NRF54L15_CPUFLPR || \
++		BOARD_XIAO_NRF54L15_NRF54L15_CPUFLPR_XIP
+diff --git a/boards/seeed/xiao_nrf54l15/board.cmake b/boards/seeed/xiao_nrf54l15/board.cmake
+new file mode 100644
+index 00000000000..391234000ea
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/board.cmake
+@@ -0,0 +1,17 @@
++# SPDX-License-Identifier: Apache-2.0
++
++if(CONFIG_SOC_NRF54L15_CPUAPP)
++  board_runner_args(openocd "--cmd-load=nrf54l-load" -c "targets nrf54l.cpu")
++  board_runner_args(pyocd "--target=nrf54l" "--frequency=4000000")
++  board_runner_args(jlink "--device=nRF54L15_M33" "--speed=4000")
++elseif(CONFIG_SOC_NRF54L15_CPUFLPR)
++  board_runner_args(openocd "--cmd-load=nrf54l-load" -c "targets nrf54l.aux")
++  board_runner_args(pyocd "--target=nrf54l" "--frequency=4000000")
++  board_runner_args(jlink "--device=nRF54L15_RV32")
++endif()
++
++include(${ZEPHYR_BASE}/boards/common/openocd.board.cmake)
++include(${ZEPHYR_BASE}/boards/common/pyocd.board.cmake)
++include(${ZEPHYR_BASE}/boards/common/nrfutil.board.cmake)
++include(${ZEPHYR_BASE}/boards/common/nrfjprog.board.cmake)
++include(${ZEPHYR_BASE}/boards/common/jlink.board.cmake)
+diff --git a/boards/seeed/xiao_nrf54l15/board.yml b/boards/seeed/xiao_nrf54l15/board.yml
+new file mode 100644
+index 00000000000..8641807b8e1
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/board.yml
+@@ -0,0 +1,9 @@
++board:
++  name: xiao_nrf54l15
++  full_name: XIAO NRF54L15
++  vendor: seeed
++  socs:
++  - name: nrf54l15
++    variants:
++    - name: xip
++      cpucluster: cpuflpr
+diff --git a/boards/seeed/xiao_nrf54l15/pre_dt_board.cmake b/boards/seeed/xiao_nrf54l15/pre_dt_board.cmake
+new file mode 100644
+index 00000000000..8a1f7e61396
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/pre_dt_board.cmake
+@@ -0,0 +1,3 @@
++# SPDX-License-Identifier: Apache-2.0
++# Suppress "unique_unit_address_if_enabled" to handle some overlaps
++list(APPEND EXTRA_DTC_FLAGS "-Wno-unique_unit_address_if_enabled")
+diff --git a/boards/seeed/xiao_nrf54l15/seeed_xiao_connector.dtsi b/boards/seeed/xiao_nrf54l15/seeed_xiao_connector.dtsi
+new file mode 100644
+index 00000000000..f505ce0f1e9
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/seeed_xiao_connector.dtsi
+@@ -0,0 +1,36 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++/ {
++	xiao_d: connector {
++		compatible = "seeed,xiao-gpio";
++		#gpio-cells = <2>;
++		gpio-map-mask = <0xffffffff 0xffffffc0>;
++		gpio-map-pass-thru = <0 0x3f>;
++		gpio-map = <0 0 &gpio1 4 0>,	/* D0 */
++			   <1 0 &gpio1 5 0>,	/* D1 */
++			   <2 0 &gpio1 6 0>,	/* D2 */
++			   <3 0 &gpio1 7 0>,	/* D3 */
++			   <4 0 &gpio1 10 0>,	/* D4 */
++			   <5 0 &gpio1 11 0>,	/* D5 */
++			   <6 0 &gpio2 8 0>,	/* D6 */
++			   <7 0 &gpio2 7 0>,	/* D7 */
++			   <8 0 &gpio2 1 0>,	/* D8 */
++			   <9 0 &gpio2 4 0>,	/* D9 */
++			   <10 0 &gpio2 2 0>,	/* D10 */
++			   <11 0 &gpio0 3 0>,	/* D11 */
++			   <12 0 &gpio0 4 0>,	/* D12 */
++			   <13 0 &gpio2 10 0>,	/* D13 */
++			   <14 0 &gpio2 9 0>,	/* D14 */
++			   <15 0 &gpio2 6 0>;	/* D15 */
++	};
++};
++
++xiao_i2c: &i2c22 {};
++
++xiao_spi: &spi00 {};
++
++xiao_serial: &uart21 {};
++
++xiao_adc: &adc {};
+diff --git a/boards/seeed/xiao_nrf54l15/support/openocd.cfg b/boards/seeed/xiao_nrf54l15/support/openocd.cfg
+new file mode 100644
+index 00000000000..8ec6b496f65
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/support/openocd.cfg
+@@ -0,0 +1,182 @@
++# SPDX-License-Identifier: Apache-2.0
++
++if {[info exists env(OPENOCD_INTERFACE)]} {
++	set INTERFACE $env(OPENOCD_INTERFACE)
++} else {
++	# By default connect over Debug USB port using the CMSIS-DAP interface
++	set INTERFACE "cmsis-dap"
++}
++
++source [find interface/$INTERFACE.cfg]
++
++set _CHIPNAME nrf54l
++
++# Work-area is a space in RAM used for flash programming, by default use 16 KiB.
++if { [info exists WORKAREASIZE] } {
++   set _WORKAREASIZE $WORKAREASIZE
++} else {
++   set _WORKAREASIZE 0x4000
++}
++
++if { [info exists CPUTAPID] } {
++	set _CPUTAPID $CPUTAPID
++} else {
++	set _CPUTAPID 0x6ba02477
++}
++
++# Multidrop instance ID should be configurable by FW in TAD TINSTANCE register.
++# Writes to the register are ignored due to a silicon erratum.
++if { [info exists SWD_INSTANCE_ID] } {
++	set _SWD_INSTANCE_ID $SWD_INSTANCE_ID
++} else {
++	set _SWD_INSTANCE_ID 0
++}
++
++transport select swd
++
++swd newdap $_CHIPNAME cpu -expected-id $_CPUTAPID
++
++if { [info exists SWD_MULTIDROP] } {
++	dap create $_CHIPNAME.dap -chain-position $_CHIPNAME.cpu -dp-id 0x001c0289 -instance-id $_SWD_INSTANCE_ID
++} else {
++	dap create $_CHIPNAME.dap -chain-position $_CHIPNAME.cpu
++}
++
++set _TARGETNAME $_CHIPNAME.cpu
++target create $_TARGETNAME cortex_m -dap $_CHIPNAME.dap -ap-num 0
++
++$_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size $_WORKAREASIZE -work-area-backup 0
++
++# Create target for the AUX access port (AUX-AP).
++target create $_CHIPNAME.aux mem_ap -dap $_CHIPNAME.dap -ap-num 1
++
++# AUX-AP is accessible only if CSW Prot[0] bit (Data Access) is set
++$_CHIPNAME.dap apsel 1
++$_CHIPNAME.dap apcsw 0x01000000 0x01000000
++
++adapter speed 1000
++
++# Use main processor as default target.
++targets $_TARGETNAME
++
++if {![using_hla]} {
++	$_TARGETNAME cortex_m reset_config sysresetreq
++}
++
++proc nrf54l-load {file} {
++	mww 0x5004b500 0x101
++	load_image $file
++}
++
++# Define CTRL_AP_NUM explicitly to avoid variable errors
++set CTRL_AP_NUM 2
++
++# Custom _nrf_check_ap_lock for nRF54L (adjusted unlocked_value to 1, based on PyOCD's CSW check)
++proc _nrf_check_ap_lock { ctrl_ap_num unlocked_value } {
++    set target [target current]
++    set dap [$target cget -dap]
++    set err [catch {set APPROTECTSTATUS [$dap apreg $ctrl_ap_num 0xc]}]  ;# 0xc is ERASEPROTECTSTATUS register
++    if {$err == 0 && $APPROTECTSTATUS < $unlocked_value} {
++        echo "\[$target\] device has AP lock engaged, trying recover."
++        poll off
++        return 1
++    }
++    return 0
++}
++
++# Custom _nrf_ctrl_ap_recover for nRF54L (adjusted IDR to 0x32880000)
++proc _nrf_ctrl_ap_recover { ctrl_ap_num {is_cpunet 0} } {
++    set target [target current]
++    set dap [$target cget -dap]
++
++    set IDR [$dap apreg $ctrl_ap_num 0xfc]
++    if {$IDR != 0x32880000} {  ;# IDR for nRF54L CTRL-AP
++        echo "Error: Cannot access nRF54L CTRL-AP! (IDR: 0x$IDR)"
++        return
++    }
++
++    poll off
++
++    # Reset and trigger ERASEALL task
++    $dap apreg $ctrl_ap_num 4 0  ;# CTRL_AP_ERASEALL = 0x004
++    $dap apreg $ctrl_ap_num 4 1
++
++    # First, wait for BUSY state
++    set timeout 300  ;# ~30s
++    for {set i 0} {$i < $timeout} {incr i} {
++        set ERASEALLSTATUS [$dap apreg $ctrl_ap_num 8]
++        if {$ERASEALLSTATUS == 2} {  ;# BUSY status
++            break
++        }
++        if {$ERASEALLSTATUS == 3} {  ;# ERROR status
++            echo "Error: Erase failed with ERROR status."
++            return
++        }
++        sleep 100
++    }
++    if {$i >= $timeout} {
++        echo "Error: Timeout waiting for BUSY status."
++        return
++    }
++
++    # Then, wait for READYTORESET state
++    for {set i 0} {$i < $timeout} {incr i} {
++        set ERASEALLSTATUS [$dap apreg $ctrl_ap_num 8]
++        if {$ERASEALLSTATUS == 1} {  ;# READYTORESET status
++            echo "\[$target\] device has been successfully erased and unlocked."
++            break
++        }
++        if {$ERASEALLSTATUS == 3} {  ;# ERROR status
++            echo "Error: Erase failed with ERROR status."
++            break
++        }
++        sleep 100
++    }
++    if {$i >= $timeout} {
++        echo "Error: Timeout waiting for READYTORESET status."
++        return
++    }
++
++    # Short delay before reset
++    sleep 10
++
++    # Assert reset: write 2 then 0
++    $dap apreg $ctrl_ap_num 0 2  ;# CTRL_AP_RESET = 0x000
++    sleep 10
++    $dap apreg $ctrl_ap_num 0 0
++
++    # Reset ERASEALL task
++    $dap apreg $ctrl_ap_num 4 0
++
++    if { $is_cpunet } {
++        reset init
++    } else {
++        sleep 200  ;# Slightly increased delay
++        $target arp_examine
++        poll on
++    }
++}
++
++lappend _telnet_autocomplete_skip _nrf_check_ap_lock _nrf_ctrl_ap_recover
++
++if { ![using_hla] } {
++    # Check AP lock on examine-fail and auto-recover if locked
++    $_TARGETNAME configure -event examine-fail {
++        global CTRL_AP_NUM
++        set target [target current]
++        if { [_nrf_check_ap_lock $CTRL_AP_NUM 1] } {
++            nrf54l_mass_erase
++            $target arp_examine  ;# Re-examine after recover
++        }
++    }
++
++    # Mass erase and unlock the device using proprietary nRF CTRL-AP (AP #2)
++    proc nrf54l_mass_erase {} {
++        global CTRL_AP_NUM
++        _nrf_ctrl_ap_recover $CTRL_AP_NUM  ;# No cpunet for nRF54L
++    }
++    add_help_text nrf54l_mass_erase "Mass erase flash and unlock nRF54L device"
++}
++
++flash bank $_CHIPNAME.flash nrf5 0x00000000 0x0017D000 0 0 $_TARGETNAME
++# flash bank $_CHIPNAME.uicr nrf5 0x00FFD000 0 0 0 $_TARGETNAME
+diff --git a/boards/seeed/xiao_nrf54l15/xiao_nrf54l15-pinctrl.dtsi b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15-pinctrl.dtsi
+new file mode 100644
+index 00000000000..3214140c007
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15-pinctrl.dtsi
+@@ -0,0 +1,114 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++&pinctrl {
++	/omit-if-no-ref/ uart20_default: uart20_default {
++		group1 {
++			psels = <NRF_PSEL(UART_TX, 1, 9)>;
++		};
++
++		group2 {
++			psels = <NRF_PSEL(UART_RX, 1, 8)>;
++			bias-pull-up;
++		};
++	};
++
++	/omit-if-no-ref/ uart20_sleep: uart20_sleep {
++		group1 {
++			psels = <NRF_PSEL(UART_TX, 1, 9)>,
++				<NRF_PSEL(UART_RX, 1, 8)>;
++			low-power-enable;
++		};
++	};
++
++	/omit-if-no-ref/ uart21_default: uart21_default {
++		group1 {
++			psels = <NRF_PSEL(UART_TX, 2, 8)>;
++		};
++
++		group2 {
++			psels = <NRF_PSEL(UART_RX, 2, 7)>;
++			bias-pull-up;
++		};
++	};
++
++	/omit-if-no-ref/ uart21_sleep: uart21_sleep {
++		group1 {
++			psels = <NRF_PSEL(UART_TX, 2, 8)>,
++				<NRF_PSEL(UART_RX, 2, 7)>;
++			low-power-enable;
++		};
++	};
++
++	/omit-if-no-ref/ i2c22_default: i2c22_default {
++		group1 {
++			psels = <NRF_PSEL(TWIM_SDA, 1, 10)>,
++				<NRF_PSEL(TWIM_SCL, 1, 11)>;
++		};
++	};
++
++	/omit-if-no-ref/ i2c22_sleep: i2c22_sleep {
++		group1 {
++			psels = <NRF_PSEL(TWIM_SDA, 1, 10)>,
++				<NRF_PSEL(TWIM_SCL, 1, 11)>;
++			low-power-enable;
++		};
++	};
++
++	/omit-if-no-ref/ i2c30_default: i2c30_default {
++		group1 {
++			psels = <NRF_PSEL(TWIM_SDA, 0, 4)>,
++				<NRF_PSEL(TWIM_SCL, 0, 3)>;
++		};
++	};
++
++	/omit-if-no-ref/ i2c30_sleep: i2c30_sleep {
++		group1 {
++			psels = <NRF_PSEL(TWIM_SDA, 0, 4)>,
++				<NRF_PSEL(TWIM_SCL, 0, 3)>;
++			low-power-enable;
++		};
++	};
++
++	/omit-if-no-ref/ spi00_default: spi00_default {
++		group1 {
++			psels = <NRF_PSEL(SPIM_SCK, 2, 1)>,
++				<NRF_PSEL(SPIM_MOSI, 2, 2)>,
++				<NRF_PSEL(SPIM_MISO, 2, 4)>;
++		};
++	};
++
++	/omit-if-no-ref/ spi00_sleep: spi00_sleep {
++		group1 {
++			psels = <NRF_PSEL(SPIM_SCK, 2, 1)>,
++				<NRF_PSEL(SPIM_MOSI, 2, 2)>,
++				<NRF_PSEL(SPIM_MISO, 2, 4)>;
++			low-power-enable;
++		};
++	};
++
++	/omit-if-no-ref/ spi22_default: spi22_default {
++		group1 {
++			psels = <NRF_PSEL(SPIM_SCK, 1, 8)>,
++				<NRF_PSEL(SPIM_MOSI, 1, 10)>,
++				<NRF_PSEL(SPIM_MISO, 1, 9)>;
++		};
++	};
++
++	/omit-if-no-ref/ spi22_sleep: spi22_sleep {
++		group1 {
++			psels = <NRF_PSEL(SPIM_SCK, 1, 8)>,
++				<NRF_PSEL(SPIM_MOSI, 1, 10)>,
++				<NRF_PSEL(SPIM_MISO, 1, 9)>;
++			low-power-enable;
++		};
++	};
++
++	pdm20_default: pdm20_default {
++		group1 {
++			psels = <NRF_PSEL(PDM_CLK, 1, 12)>,
++				<NRF_PSEL(PDM_DIN, 1, 13)>;
++		};
++	};
++};
+diff --git a/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_common.dtsi b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_common.dtsi
+new file mode 100644
+index 00000000000..93c9979a362
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_common.dtsi
+@@ -0,0 +1,166 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "xiao_nrf54l15-pinctrl.dtsi"
++#include <zephyr/dt-bindings/sensor/lsm6dso.h>
++
++/ {
++	leds {
++		compatible = "gpio-leds";
++
++		led0: led_0 {
++			gpios = <&gpio2 0 GPIO_ACTIVE_LOW>;
++			label = "LED 0";
++		};
++	};
++
++	buttons: buttons {
++		compatible = "gpio-keys";
++
++		usr_btn: usr-btn {
++			gpios = <&gpio0 0 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
++			label = "USR";
++			zephyr,code = <INPUT_KEY_ENTER>;
++		};
++	};
++
++	aliases {
++		led0 = &led0;
++		buttons = &buttons;
++		dmic20 = &pdm20;
++		sw0 = &usr_btn;
++		watchdog0 = &wdt31;
++	};
++};
++
++&uart20 {
++	current-speed = <115200>;
++	pinctrl-0 = <&uart20_default>;
++	pinctrl-1 = <&uart20_sleep>;
++	pinctrl-names = "default", "sleep";
++};
++
++&uart21 {
++	current-speed = <115200>;
++	pinctrl-0 = <&uart21_default>;
++	pinctrl-1 = <&uart21_sleep>;
++	pinctrl-names = "default", "sleep";
++};
++
++&i2c22 {
++	pinctrl-0 = <&i2c22_default>;
++	pinctrl-1 = <&i2c22_sleep>;
++	pinctrl-names = "default", "sleep";
++	clock-frequency = <400000>;
++};
++
++&i2c30 {
++	pinctrl-0 = <&i2c30_default>;
++	pinctrl-1 = <&i2c30_sleep>;
++	pinctrl-names = "default", "sleep";
++	clock-frequency = <400000>;
++};
++
++&spi00 {
++	pinctrl-0 = <&spi00_default>;
++	pinctrl-1 = <&spi00_sleep>;
++	pinctrl-names = "default", "sleep";
++};
++
++&spi22 {
++	pinctrl-0 = <&spi22_default>;
++	pinctrl-1 = <&spi22_sleep>;
++	pinctrl-names = "default", "sleep";
++};
++
++&pdm20 {
++	pinctrl-0 = <&pdm20_default>;
++	pinctrl-names = "default";
++	clock-source = "PCLK32M";
++};
++
++&adc {
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	channel@0 {
++		reg = <0>;
++		zephyr,gain = "ADC_GAIN_1_4";
++		zephyr,reference = "ADC_REF_INTERNAL";
++		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
++		zephyr,input-positive = <NRF_SAADC_AIN0>;
++		zephyr,resolution = <12>;
++		zephyr,oversampling = <8>;
++	};
++
++	channel@1 {
++		reg = <1>;
++		zephyr,gain = "ADC_GAIN_1_4";
++		zephyr,reference = "ADC_REF_INTERNAL";
++		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
++		zephyr,input-positive = <NRF_SAADC_AIN1>;
++		zephyr,resolution = <12>;
++		zephyr,oversampling = <8>;
++	};
++
++	channel@2 {
++		reg = <2>;
++		zephyr,gain = "ADC_GAIN_1_4";
++		zephyr,reference = "ADC_REF_INTERNAL";
++		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
++		zephyr,input-positive = <NRF_SAADC_AIN2>;
++		zephyr,resolution = <12>;
++		zephyr,oversampling = <8>;
++	};
++
++	channel@3 {
++		reg = <3>;
++		zephyr,gain = "ADC_GAIN_1_4";
++		zephyr,reference = "ADC_REF_INTERNAL";
++		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
++		zephyr,input-positive = <NRF_SAADC_AIN3>;
++		zephyr,resolution = <12>;
++		zephyr,oversampling = <8>;
++	};
++
++	channel@4 {
++		reg = <4>;
++		zephyr,gain = "ADC_GAIN_1_4";
++		zephyr,reference = "ADC_REF_INTERNAL";
++		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
++		zephyr,input-positive = <NRF_SAADC_AIN4>;
++		zephyr,resolution = <12>;
++		zephyr,oversampling = <8>;
++	};
++
++	channel@5 {
++		reg = <5>;
++		zephyr,gain = "ADC_GAIN_1_4";
++		zephyr,reference = "ADC_REF_INTERNAL";
++		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
++		zephyr,input-positive = <NRF_SAADC_AIN5>;
++		zephyr,resolution = <12>;
++		zephyr,oversampling = <8>;
++	};
++
++	channel@6 {
++		reg = <6>;
++		zephyr,gain = "ADC_GAIN_1_4";
++		zephyr,reference = "ADC_REF_INTERNAL";
++		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
++		zephyr,input-positive = <NRF_SAADC_AIN6>;
++		zephyr,resolution = <12>;
++		zephyr,oversampling = <8>;
++	};
++
++	channel@7 {
++		reg = <7>;
++		zephyr,gain = "ADC_GAIN_1_4";
++		zephyr,reference = "ADC_REF_INTERNAL";
++		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
++		zephyr,input-positive = <NRF_SAADC_AIN7>;
++		zephyr,resolution = <12>;
++		zephyr,oversampling = <8>;
++	};
++};
+diff --git a/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuapp.dts b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuapp.dts
+new file mode 100644
+index 00000000000..eadd1a47896
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuapp.dts
+@@ -0,0 +1,178 @@
++/*
++ * Copyright (c) 2025 Seeed Technology Co., Ltd.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++/dts-v1/;
++#include <nordic/nrf54l15_cpuapp.dtsi>
++#include "seeed_xiao_connector.dtsi"
++#include "xiao_nrf54l15_common.dtsi"
++
++/ {
++	model = "Seeed XIAO nRF54L15";
++	compatible = "seeed,xiao-nrf54l15-cpuapp";
++
++	pdm_imu_pwr: pdm-imu-pwr {
++		compatible = "regulator-fixed";
++		regulator-name = "pdm-imu-pwr";
++		enable-gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
++		regulator-boot-on;
++		startup-delay-us = <5000>;
++	};
++
++	rfsw_ctl: rfsw-ctl {
++		compatible = "regulator-fixed";
++		regulator-name = "rfsw-ctl";
++		enable-gpios = <&gpio2 5 GPIO_ACTIVE_LOW>;
++		regulator-boot-on;
++	};
++
++	rfsw_pwr: rfsw-pwr {
++		compatible = "regulator-fixed";
++		regulator-name = "rfsw-pwr";
++		enable-gpios = <&gpio2 3 GPIO_ACTIVE_HIGH>;
++		regulator-boot-on;
++	};
++
++	vbat_pwr: vbat-pwr {
++		compatible = "regulator-fixed";
++		regulator-name = "vbat";
++		enable-gpios = <&gpio1 15 GPIO_ACTIVE_HIGH>;
++		regulator-boot-on;
++	};
++
++	chosen {
++		zephyr,code-partition = &slot0_partition;
++		zephyr,sram = &cpuapp_sram;
++		zephyr,flash = &cpuapp_rram;
++		zephyr,flash-controller = &rram_controller;
++		zephyr,console = &uart20;
++		zephyr,shell-uart = &uart20;
++		nordic,rpc-uart = &uart20;
++		zephyr,ieee802154 = &ieee802154;
++	};
++
++	aliases {
++		imu0 = &lsm6ds3tr_c;
++	};
++};
++
++&cpuapp_sram {
++	status = "okay";
++};
++
++&grtc {
++	owned-channels = <0 1 2 3 4 5 6 7 8 9 10 11>;
++	/* Channels 7-11 reserved for Zero Latency IRQs, 3-4 for FLPR */
++	child-owned-channels = <3 4 7 8 9 10 11>;
++	status = "okay";
++};
++
++&clock {
++	status = "okay";
++};
++
++&uart20 {
++	status = "okay";
++};
++
++&uart21 {
++	status = "okay";
++};
++
++&i2c22 {
++	status = "okay";
++};
++
++&i2c30 {
++	status = "okay";
++
++	lsm6ds3tr_c: lsm6ds3tr-c@6a {
++		compatible = "st,lsm6dsl";
++		reg = <0x6a>;
++		irq-gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;
++		status = "okay";
++	};
++};
++
++&spi00 {
++	status = "okay";
++};
++
++dmic_dev: &pdm20 {
++	status = "okay";
++};
++
++&adc {
++	status = "okay";
++};
++
++&gpio0 {
++	status = "okay";
++
++	imu_power_default_on: imu_power_default_on {
++		gpio-hog;
++		gpios = <1 GPIO_ACTIVE_HIGH>;
++		line-name = "imu-power-enable";
++	};
++};
++
++&gpio1 {
++	status = "okay";
++};
++
++&gpio2 {
++	status = "okay";
++};
++
++&gpiote20 {
++	status = "okay";
++};
++
++&gpiote30 {
++	status = "okay";
++};
++
++&regulators {
++	status = "okay";
++};
++
++&vregmain {
++	status = "okay";
++	regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
++};
++
++&lfxo {
++	load-capacitors = "internal";
++	load-capacitance-femtofarad = <16000>;
++	status = "okay";
++};
++
++&hfxo {
++	load-capacitors = "internal";
++	load-capacitance-femtofarad = <16000>;
++	status = "okay";
++};
++
++&ieee802154 {
++	status = "okay";
++};
++
++&temp {
++	status = "okay";
++};
++
++&radio {
++	status = "okay";
++};
++
++&nfct {
++	status = "okay";
++};
++
++&clock {
++	status = "okay";
++};
++
++/* Include default memory partition configuration file */
++#include <vendor/nordic/nrf54l15_cpuapp_partition.dtsi>
+diff --git a/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuapp.yaml b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuapp.yaml
+new file mode 100644
+index 00000000000..bc9602413b5
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuapp.yaml
+@@ -0,0 +1,28 @@
++# Copyright (c) 2025 Seeed Technology Co., Ltd.
++# SPDX-License-Identifier: Apache-2.0
++
++identifier: xiao_nrf54l15/nrf54l15/cpuapp
++name: XIAO nRF54L15
++vendor: seeed
++arch: arm
++toolchain:
++  - zephyr
++sysbuild: true
++ram: 188
++flash: 1428
++supported:
++  - adc
++  - counter
++  - dmic
++  - gpio
++  - i2c
++  - pwm
++  - retained_mem
++  - spi
++  - watchdog
++  - i2s
++  - xiao_gpio
++  - xiao_i2c
++  - xiao_spi
++  - xiao_serial
++  - xiao_adc
+diff --git a/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuapp_defconfig b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuapp_defconfig
+new file mode 100644
+index 00000000000..842c2c6d5a8
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuapp_defconfig
+@@ -0,0 +1,26 @@
++# Copyright (c) 2025 Seeed Technology Co., Ltd.
++# SPDX-License-Identifier: Apache-2.0
++# Enable UART driver
++CONFIG_SERIAL=y
++
++# Enable console
++CONFIG_CONSOLE=y
++CONFIG_UART_CONSOLE=y
++CONFIG_PM_DEVICE=y
++CONFIG_NRFX_POWER=y
++
++# Enable GPIO
++CONFIG_GPIO=y
++
++CONFIG_ARM_MPU=y
++CONFIG_HW_STACK_PROTECTION=y
++
++CONFIG_NULL_POINTER_EXCEPTION_DETECTION_NONE=y
++
++CONFIG_CACHE_MANAGEMENT=y
++CONFIG_EXTERNAL_CACHE=y
++
++CONFIG_NRF_GRTC_START_SYSCOUNTER=y
++
++CONFIG_REGULATOR=y
++CONFIG_REGULATOR_FIXED_INIT_PRIORITY=45
+diff --git a/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuflpr.dts b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuflpr.dts
+new file mode 100644
+index 00000000000..0905ecb7b64
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuflpr.dts
+@@ -0,0 +1,66 @@
++/*
++ * Copyright (c) 2025 Seeed Technology Co., Ltd.
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++/dts-v1/;
++#include <vendor/nordic/nrf54l15_cpuflpr.dtsi>
++#include "xiao_nrf54l15_common.dtsi"
++
++/ {
++	model = "Seeed XIAO nRF54L15";
++	compatible = "seeed,xiao-nrf54l15-cpuflpr";
++
++	chosen {
++		zephyr,code-partition = &cpuflpr_code_partition;
++		zephyr,flash = &cpuflpr_rram;
++		zephyr,sram = &cpuflpr_sram;
++	};
++};
++
++&cpuflpr_sram {
++	status = "okay";
++	/* size must be increased due to booting from SRAM */
++	reg = <0x20028000 DT_SIZE_K(96)>;
++	ranges = <0x0 0x20028000 0x18000>;
++};
++
++&cpuflpr_rram {
++	partitions {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		cpuflpr_code_partition: partition@0 {
++			compatible = "zephyr,mapped-partition";
++			label = "image-0";
++			reg = <0x0 DT_SIZE_K(96)>;
++		};
++	};
++};
++
++&grtc {
++	owned-channels = <3 4>;
++	status = "okay";
++};
++
++&gpio0 {
++	status = "okay";
++};
++
++&gpio1 {
++	status = "okay";
++};
++
++&gpio2 {
++	status = "okay";
++};
++
++&gpiote20 {
++	status = "okay";
++};
++
++&gpiote30 {
++	status = "okay";
++};
+diff --git a/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuflpr.yaml b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuflpr.yaml
+new file mode 100644
+index 00000000000..23b75fd4ba1
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuflpr.yaml
+@@ -0,0 +1,18 @@
++# Copyright (c) 2025 Seeed Technology Co., Ltd.
++# SPDX-License-Identifier: Apache-2.0
++
++identifier: xiao_nrf54l15/nrf54l15/cpuflpr
++name: XIAO nRF54L15
++type: mcu
++arch: riscv
++toolchain:
++  - zephyr
++sysbuild: true
++ram: 96
++flash: 96
++supported:
++  - counter
++  - gpio
++  - i2c
++  - spi
++  - watchdog
+diff --git a/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuflpr_defconfig b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuflpr_defconfig
+new file mode 100644
+index 00000000000..743d365496a
+--- /dev/null
++++ b/boards/seeed/xiao_nrf54l15/xiao_nrf54l15_nrf54l15_cpuflpr_defconfig
+@@ -0,0 +1,13 @@
++# Copyright (c) 2025 Seeed Technology Co., Ltd.
++# SPDX-License-Identifier: Apache-2.0
++
++# Enable GPIO
++CONFIG_GPIO=y
++
++CONFIG_USE_DT_CODE_PARTITION=y
++
++# Execute from SRAM
++CONFIG_XIP=n
++
++# Use internal LFCLK
++CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y
+diff --git a/dts/vendor/nordic/nrf54l15_cpuapp_partition.dtsi b/dts/vendor/nordic/nrf54l15_cpuapp_partition.dtsi
+new file mode 100644
+index 00000000000..4988de3ed54
+--- /dev/null
++++ b/dts/vendor/nordic/nrf54l15_cpuapp_partition.dtsi
+@@ -0,0 +1,33 @@
++/*
++ * Copyright (c) 2025 Nordic Semiconductor ASA
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++&cpuapp_rram {
++	partitions {
++		compatible = "fixed-partitions";
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		boot_partition: partition@0 {
++			label = "mcuboot";
++			reg = <0x0 DT_SIZE_K(64)>;
++		};
++
++		slot0_partition: partition@10000 {
++			label = "image-0";
++			reg = <0x10000 DT_SIZE_K(664)>;
++		};
++
++		slot1_partition: partition@b6000 {
++			label = "image-1";
++			reg = <0xb6000 DT_SIZE_K(664)>;
++		};
++
++		storage_partition: partition@15c000 {
++			label = "storage";
++			reg = <0x15c000 DT_SIZE_K(36)>;
++		};
++	};
++};
+diff --git a/dts/vendor/nordic/nrf54l15_cpuapp_ns_partition.dtsi b/dts/vendor/nordic/nrf54l15_cpuapp_ns_partition.dtsi
+new file mode 100644
+index 00000000000..ab1f686caa2
+--- /dev/null
++++ b/dts/vendor/nordic/nrf54l15_cpuapp_ns_partition.dtsi
+@@ -0,0 +1,89 @@
++/*
++ * Copyright (c) 2025 Nordic Semiconductor ASA
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++/*
++ * Default SRAM planning when building for nRF54L15 with ARM TrustZone-M support
++ * - Lowest 128 kB SRAM allocated to Secure image (sram0_s).
++ * - Upper 128 kB SRAM allocated to Non-Secure image (sram0_ns).
++ *
++ * nRF54L15 has 256 kB of volatile memory (SRAM).
++ * This static layout needs to be the same with the upstream TF-M layout in the
++ * header flash_layout.h of the relevant platform. Any updates in the layout
++ * needs to happen both in the flash_layout.h and in this file at the same time.
++ */
++&cpuapp_sram {
++	sram0_s: image_s@0 {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		/* Secure image memory */
++		reg = <0x0 DT_SIZE_K(128)>;
++		ranges = <0x0 0x0 DT_SIZE_K(128)>;
++	};
++
++	sram0_ns: image_ns@20000 {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		/* Non-Secure image memory */
++		reg = <0x20000 DT_SIZE_K(128)>;
++		ranges = <0x0 0x20000 DT_SIZE_K(128)>;
++	};
++};
++
++&cpuapp_rram {
++	/*
++	 * Default NVM layout on NRF54L15 Application MCU without BL2:
++	 * This layout matches (by necessity) that in the TF-M repository:
++	 *
++	 * 0x0000_0000 Secure image primary (512 KB)
++	 * 0x0008_0000 Protected Storage Area (16 KB)
++	 * 0x0008_4000 Internal Trusted Storage Area (16 KB)
++	 * 0x0008_8000 OTP / NV counters area (8 KB)
++	 * 0x0008_A000 Non-secure image primary (940 KB)
++	 * 0x0017_5000 Non-secure storage, used when built with NRF_NS_STORAGE=ON,
++	 *             otherwise unused (32 KB)
++	 */
++	partitions {
++		compatible = "fixed-partitions";
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		/* nRF54L15 has 1524 kB of non volatile memory (RRAM)
++		 *
++		 * This static layout needs to be the same with the upstream TF-M layout in the
++		 * header flash_layout.h of the relevant platform. Any updates in the layout
++		 * needs to happen both in the flash_layout.h and in this file at the same time.
++		 */
++		slot0_partition: partition@0 {
++			label = "image-0";
++			reg = <0x0000000 DT_SIZE_K(512)>;
++		};
++
++		tfm_ps_partition: partition@80000 {
++			label = "tfm-ps";
++			reg = <0x00080000 DT_SIZE_K(16)>;
++		};
++
++		tfm_its_partition: partition@84000 {
++			label = "tfm-its";
++			reg = <0x00084000 DT_SIZE_K(16)>;
++		};
++
++		tfm_otp_partition: partition@88000 {
++			label = "tfm-otp";
++			reg = <0x00088000 DT_SIZE_K(8)>;
++		};
++
++		slot0_ns_partition: partition@8a000 {
++			label = "image-0-nonsecure";
++			reg = <0x0008a000 DT_SIZE_K(940)>;
++		};
++
++		storage_partition: partition@175000 {
++			label = "storage";
++			reg = <0x000175000 DT_SIZE_K(32)>;
++		};
++	};
++};

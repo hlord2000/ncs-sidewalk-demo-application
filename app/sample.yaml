@@ -10,23 +10,7 @@ common:
     - nrf54l15dk/nrf54l15/cpuapp
     - nrf54l15dk/nrf54l15/cpuapp/ns
     - nrf54l15dk/nrf54l10/cpuapp
-    - xiao_nrf54l15/nrf54l15/cpuapp
 tests:
-  sample.sidewalk.web_demo.xiao:
-    integration_platforms:
-      - xiao_nrf54l15/nrf54l15/cpuapp
-    extra_args:
-      - FILE_SUFFIX=release
-      - OVERLAY_CONFIG="overlay-min-size.conf;overlay-prop-radio.conf;overlay-web-demo.conf"
-      - DTC_OVERLAY_FILE="boards/xiao_nrf54l15_nrf54l15_cpuapp.overlay;overlay-web-demo.overlay"
-    extra_configs:
-      - CONFIG_SIDEWALK_APPLICATION_NAME="hello.web_demo"
-    tags:
-      - Sidewalk
-      - hello
-      - web
-      - xiao
-
   sample.sidewalk.hello.sx1262:
     integration_platforms:
       - nrf52840dk/nrf52840

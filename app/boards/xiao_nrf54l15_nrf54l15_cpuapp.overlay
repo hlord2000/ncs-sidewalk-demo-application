@@ -5,7 +5,6 @@
  */
 
 #include <zephyr/dt-bindings/lora_lbm/sx126x.h>
-#include <zephyr/dt-bindings/input/input-event-codes.h>
 
 / {
 	chosen {
@@ -17,13 +16,21 @@
 	};
 };
 
-&buttons {
-	debounce-interval-ms = <30>;
+&usr_btn {
+	gpios = <&xiao_d 0 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
+	label = "Sidewalk Button";
+};
 
-	sidewalk_trigger_btn: sidewalk_trigger_btn {
-		gpios = <&gpio1 4 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
-		label = "Sidewalk Trigger";
-		zephyr,code = <INPUT_KEY_0>;
+&i2c22 {
+	status = "disabled";
+};
+
+&gpio1 {
+	wio_sx1262_rf_sw_high {
+		gpio-hog;
+		gpios = <11 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wio-sx1262-rf-sw";
 	};
 };
 
@@ -42,33 +49,10 @@ arduino_spi: &spi00 {
 		dio2-as-rf-switch;
 
 		dio3-as-tcxo-control;
-		tcxo-voltage = <SX126X_TCXO_SUPPLY_3_0V>;
+			tcxo-voltage = <SX126X_TCXO_SUPPLY_1_8V>;
 		tcxo-wakeup-time = <5>;
 
-		reg-mode = <SX126X_REG_MODE_DCDC>;
+		reg-mode = <SX126X_REG_MODE_LDO>;
+
 	};
-};
-
-&adc {
-	status = "disabled";
-};
-
-&i2c22 {
-	status = "disabled";
-};
-
-&i2c30 {
-	status = "disabled";
-};
-
-&lsm6ds3tr_c {
-	status = "disabled";
-};
-
-&pdm20 {
-	status = "disabled";
-};
-
-&uart21 {
-	status = "disabled";
 };

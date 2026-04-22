@@ -5,8 +5,6 @@
  */
 
 #include <app.h>
-#include <cloud_bridge.h>
-#include <input_trigger.h>
 #include <sidewalk.h>
 #include <app_ble_config.h>
 #include <app_subGHz_config.h>
@@ -17,7 +15,6 @@
 #include <zephyr/logging/log.h>
 
 #include <bt_app_callbacks.h>
-#include <web_shell_ble.h>
 
 LOG_MODULE_REGISTER(app, CONFIG_SIDEWALK_LOG_LEVEL);
 
@@ -35,7 +32,6 @@ static void on_sidewalk_msg_received(const struct sid_msg_desc *msg_desc, const 
 				     void *context)
 {
 	LOG_HEXDUMP_INF((uint8_t *)msg->data, msg->size, "Message received success");
-	cloud_bridge_on_msg_received(msg_desc, msg);
 	printk(JSON_NEW_LINE(JSON_OBJ(JSON_NAME(
 		"on_msg_received", JSON_OBJ(JSON_VAL_sid_msg_desc("sid_msg_desc", msg_desc, 1))))));
 }
@@ -43,7 +39,6 @@ static void on_sidewalk_msg_received(const struct sid_msg_desc *msg_desc, const 
 static void on_sidewalk_msg_sent(const struct sid_msg_desc *msg_desc, void *context)
 {
 	LOG_INF("Message send success");
-	input_trigger_on_msg_sent(msg_desc);
 	printk(JSON_NEW_LINE(JSON_OBJ(JSON_NAME(
 		"on_msg_sent", JSON_OBJ(JSON_VAL_sid_msg_desc("sid_msg_desc", msg_desc, 0))))));
 }
@@ -52,7 +47,6 @@ static void on_sidewalk_send_error(sid_error_t error, const struct sid_msg_desc 
 				   void *context)
 {
 	LOG_ERR("Message send err %d", (int)error);
-	input_trigger_on_send_error(msg_desc);
 	printk(JSON_NEW_LINE(JSON_OBJ(JSON_NAME(
 		"on_send_error",
 		JSON_OBJ(JSON_LIST_2(JSON_VAL_sid_error_t("error", error),
@@ -158,16 +152,6 @@ static struct sid_time_sync_config default_time_sync_config = {
 
 void app_start(void)
 {
-	int trigger_err = input_trigger_init();
-	if (trigger_err) {
-		LOG_ERR("Cannot init input trigger (%d)", trigger_err);
-	}
-
-	int web_shell_err = web_shell_ble_start();
-	if (web_shell_err) {
-		LOG_ERR("Cannot start web shell BLE (%d)", web_shell_err);
-	}
-
 	static sidewalk_ctx_t sid_ctx = { 0 };
 
 	static struct sid_event_callbacks event_callbacks = {

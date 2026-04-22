@@ -16,7 +16,6 @@
 
 #include <sid_api.h>
 #include <sid_900_cfg.h>
-#include <sid_ble_config_ifc.h>
 #include <sid_hal_memory_ifc.h>
 
 #include <cli/app_shell.h>
@@ -46,16 +45,6 @@
 	if ((argc < required) || (argc > (required + optional))) {                                 \
 		return -EINVAL;                                                                    \
 	}
-
-SHELL_STATIC_SUBCMD_SET_CREATE(
-	sub_ble_cfg,
-	SHELL_CMD_ARG(set, NULL, CMD_SID_OPTION_BLE_CFG_SET_DESCRIPTION,
-		     cmd_sid_option_ble_cfg_set, CMD_SID_OPTION_BLE_CFG_SET_ARG_REQUIRED,
-		     CMD_SID_OPTION_BLE_CFG_SET_ARG_OPTIONAL),
-	SHELL_CMD_ARG(get, NULL, CMD_SID_OPTION_BLE_CFG_GET_DESCRIPTION,
-		     cmd_sid_option_ble_cfg_get, CMD_SID_OPTION_BLE_CFG_GET_ARG_REQUIRED,
-		     CMD_SID_OPTION_BLE_CFG_GET_ARG_OPTIONAL),
-	SHELL_SUBCMD_SET_END);
 
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_sid_option,
@@ -90,7 +79,6 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      CMD_SID_SET_OPTION_GC_ARG_REQUIRED, CMD_SID_SET_OPTION_GC_ARG_OPTIONAL),
 	SHELL_CMD_ARG(-gsi, NULL, CMD_SID_OPTION_GSI_DESCRIPTION, cmd_sid_option_sid_id,
 		      CMD_SID_OPTION_GSI_ARG_REQUIRED, CMD_SID_OPTION_GSI_ARG_OPTIONAL),
-	SHELL_CMD_ARG(-ble_cfg, &sub_ble_cfg, CMD_SID_OPTION_BLE_CFG_DESCRIPTION, NULL, 1, 0),
 
 	SHELL_SUBCMD_SET_END);
 
@@ -132,15 +120,6 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(sdk_config, NULL, CMD_SID_SDK_CONFIG_DESCRIPTION, cmd_sid_sdk_config,
 		      CMD_SID_SDK_CONFIG_DESCRIPTION_ARG_REQUIRED,
 		      CMD_SID_SDK_CONFIG_DESCRIPTION_ARG_OPTIONAL),
-	SHELL_CMD_ARG(ep_cfg, NULL, CMD_SID_EP_CFG_DESCRIPTION, cmd_sid_ep_cfg,
-		      CMD_SID_EP_CFG_DESCRIPTION_ARG_REQUIRED,
-		      CMD_SID_EP_CFG_DESCRIPTION_ARG_OPTIONAL),
-	SHELL_CMD_ARG(print_metrics, NULL, CMD_SID_PRINT_METRICS_DESCRIPTION, cmd_sid_print_metrics,
-		      CMD_SID_PRINT_METRICS_DESCRIPTION_ARG_REQUIRED,
-		      CMD_SID_PRINT_METRICS_DESCRIPTION_ARG_OPTIONAL),
-	SHELL_CMD_ARG(clear_metrics, NULL, CMD_SID_CLEAR_METRICS_DESCRIPTION, cmd_sid_clear_metrics,
-		      CMD_SID_CLEAR_METRICS_DESCRIPTION_ARG_REQUIRED,
-		      CMD_SID_CLEAR_METRICS_DESCRIPTION_ARG_OPTIONAL),
 #ifdef CONFIG_SIDEWALK_TRACE_HEAP
 	SHELL_CMD_ARG(heap_stat, NULL, "print heap statistics", cmd_sid_print_heap_stats, 1, 0),
 #endif
@@ -1010,173 +989,6 @@ int cmd_sid_option_gc(const struct shell *shell, int32_t argc, const char **argv
 	return 0;
 }
 
-static int parse_ble_cfg_adv_params(const struct shell *shell, int argc, const char **argv, int base,
-				   struct sid_ble_cfg_adv_param *adv)
-{
-	char *end;
-	unsigned long v;
-
-	if (base < argc && argv[base]) {
-		v = strtoul(argv[base], &end, 0);
-		if (end == argv[base] || v > UINT32_MAX) {
-			shell_error(shell, "Invalid fast_interval");
-			return -EINVAL;
-		}
-		adv->fast_interval = (uint32_t)v;
-	}
-	if (base + 1 < argc && argv[base + 1]) {
-		v = strtoul(argv[base + 1], &end, 0);
-		if (end == argv[base + 1] || v > UINT32_MAX) {
-			shell_error(shell, "Invalid fast_timeout");
-			return -EINVAL;
-		}
-		adv->fast_timeout = (uint32_t)v;
-	}
-	if (base + 2 < argc && argv[base + 2]) {
-		v = strtoul(argv[base + 2], &end, 0);
-		if (end == argv[base + 2] || v > UINT32_MAX) {
-			shell_error(shell, "Invalid slow_interval");
-			return -EINVAL;
-		}
-		adv->slow_interval = (uint32_t)v;
-	}
-	if (base + 3 < argc && argv[base + 3]) {
-		v = strtoul(argv[base + 3], &end, 0);
-		if (end == argv[base + 3] || v > UINT32_MAX) {
-			shell_error(shell, "Invalid slow_timeout");
-			return -EINVAL;
-		}
-		adv->slow_timeout = (uint32_t)v;
-	}
-
-	adv->type = AMA_SERVICE;
-	adv->fast_enabled = adv->fast_interval > 0;
-	adv->slow_enabled = (adv->slow_interval > 0 && adv->fast_timeout);
-
-	return 0;
-}
-
-static int parse_ble_cfg_conn_params(const struct shell *shell, int argc, const char **argv, int base,
-				    struct sid_ble_cfg_conn_param *conn)
-{
-	char *end;
-	unsigned long v;
-
-	if (base < argc && argv[base]) {
-		v = strtoul(argv[base], &end, 0);
-		if (end == argv[base] || v > UINT16_MAX) {
-			shell_error(shell, "Invalid min_conn_interval");
-			return -EINVAL;
-		}
-		conn->min_conn_interval = (uint16_t)v;
-	}
-	if (base + 1 < argc && argv[base + 1]) {
-		v = strtoul(argv[base + 1], &end, 0);
-		if (end == argv[base + 1] || v > UINT16_MAX) {
-			shell_error(shell, "Invalid max_conn_interval");
-			return -EINVAL;
-		}
-		conn->max_conn_interval = (uint16_t)v;
-	}
-	if (base + 2 < argc && argv[base + 2]) {
-		v = strtoul(argv[base + 2], &end, 0);
-		if (end == argv[base + 2] || v > UINT16_MAX) {
-			shell_error(shell, "Invalid latency");
-			return -EINVAL;
-		}
-		conn->slave_latency = (uint16_t)v;
-	}
-	if (base + 3 < argc && argv[base + 3]) {
-		v = strtoul(argv[base + 3], &end, 0);
-		if (end == argv[base + 3] || v > UINT16_MAX) {
-			shell_error(shell, "Invalid conn timeout");
-			return -EINVAL;
-		}
-		conn->conn_sup_timeout = (uint16_t)v;
-	}
-	return 0;
-}
-
-int cmd_sid_option_ble_cfg_set(const struct shell *shell, int32_t argc, const char **argv)
-{
-	CHECK_ARGUMENT_COUNT(argc, CMD_SID_OPTION_BLE_CFG_SET_ARG_REQUIRED,
-			     CMD_SID_OPTION_BLE_CFG_SET_ARG_OPTIONAL);
-
-	long cfg_type_raw = 0l;
-	char *end = NULL;
-	cfg_type_raw = strtol(argv[1], &end, 0);
-	if (end == argv[1] || !IN_RANGE(cfg_type_raw, SID_BLE_USER_CFG_ADV,
-					SID_BLE_USER_CFG_INACTIVITY_TIMEOUT)) {
-		shell_error(shell, "cfg_type must be 0..3 (ADV, CONN, ADV_AND_CONN, INACTIVITY_TIMEOUT)");
-		return -EINVAL;
-	}
-
-	struct sid_ble_user_config cfg;
-	memset(&cfg, 0, sizeof(cfg));
-	cfg.is_set = true;
-	cfg.cfg_type = (enum sid_ble_user_config_type)cfg_type_raw;
-
-	if (cfg.cfg_type == SID_BLE_USER_CFG_INACTIVITY_TIMEOUT) {
-		if (argc < 3) {
-			shell_error(shell, "inactivity_timeout required for cfg_type 3");
-			return -EINVAL;
-		}
-		unsigned long timeout = strtoul(argv[2], &end, 0);
-		if (end == argv[2] || timeout > UINT32_MAX) {
-			shell_error(shell, "Invalid inactivity_timeout");
-			return -EINVAL;
-		}
-		cfg.inactivity_timeout = (uint32_t)timeout;
-	} else if (cfg.cfg_type == SID_BLE_USER_CFG_ADV && argc >= 3) {
-		if (parse_ble_cfg_adv_params(shell, argc, argv, 2, &cfg.adv_param) != 0) {
-			return -EINVAL;
-		}
-	} else if (cfg.cfg_type == SID_BLE_USER_CFG_CONN && argc >= 3) {
-		if (parse_ble_cfg_conn_params(shell, argc, argv, 2, &cfg.conn_param) != 0) {
-			return -EINVAL;
-		}
-	} else if (cfg.cfg_type == SID_BLE_USER_CFG_ADV_AND_CONN) {
-		if (argc >= 3 && parse_ble_cfg_adv_params(shell, argc, argv, 2, &cfg.adv_param) != 0) {
-			return -EINVAL;
-		}
-		if (argc >= 7 && parse_ble_cfg_conn_params(shell, argc, argv, 6, &cfg.conn_param) != 0) {
-			return -EINVAL;
-		}
-	}
-
-	int err = cmd_sid_option_set(SID_OPTION_BLE_USER_CONFIG, &cfg, sizeof(cfg));
-	if (err) {
-		shell_error(shell, "event err %d", err);
-	}
-
-	return 0;
-}
-
-int cmd_sid_option_ble_cfg_get(const struct shell *shell, int32_t argc, const char **argv)
-{
-	CHECK_ARGUMENT_COUNT(argc, CMD_SID_OPTION_BLE_CFG_GET_ARG_REQUIRED,
-			     CMD_SID_OPTION_BLE_CFG_GET_ARG_OPTIONAL);
-
-	char *end = NULL;
-	long cfg_type_raw = strtol(argv[1], &end, 0);
-	if (end == argv[1] || !IN_RANGE(cfg_type_raw, SID_BLE_USER_CFG_ADV,
-					SID_BLE_USER_CFG_INACTIVITY_TIMEOUT)) {
-		shell_error(shell, "cfg_type must be 0..3 (ADV, CONN, ADV_AND_CONN, INACTIVITY_TIMEOUT)");
-		return -EINVAL;
-	}
-
-	struct sid_ble_user_config cfg;
-	memset(&cfg, 0, sizeof(cfg));
-	cfg.is_set = false;
-	cfg.cfg_type = (enum sid_ble_user_config_type)cfg_type_raw;
-
-	int err = cmd_sid_option_get_input_data(SID_OPTION_BLE_USER_CONFIG, &cfg, sizeof(cfg));
-	if (err) {
-		shell_error(shell, "event err %d", err);
-	}
-	return 0;
-}
-
 int cmd_sid_last_status(const struct shell *shell, int32_t argc, const char **argv)
 {
 	CHECK_ARGUMENT_COUNT(argc, CMD_SID_LAST_STATUS_ARG_REQUIRED,
@@ -1311,179 +1123,6 @@ int cmd_sid_sdk_config(const struct shell *shell, int32_t argc, const char **arg
 	shell_info(shell, "SID_SDK_CONFIG_ENABLE_LINK_TYPE_3: %d",
 		   IS_ENABLED(CONFIG_SIDEWALK_LINK_MASK_FSK) ||
 			   IS_ENABLED(CONFIG_SIDEWALK_LINK_MASK_LORA));
-	return 0;
-}
-
-/** Forward declaration as a workaround for lack of public API. */
-
-struct sid_ep_cap {
-    uint8_t version;
-    uint8_t links_enabled;
-    uint8_t traffic_threshold_id;
-    uint8_t metrics_periodicity;
-    uint16_t sdk_version;
-    uint16_t max_tx_power;
-    uint16_t qualification_id;
-    uint32_t features_support;
-};
-
-struct sid_ep_cfg_traffic_thresholds {
-    uint8_t table_id;
-    uint8_t lora_static_normal_rate;
-    uint8_t lora_static_burst_rate;
-    uint8_t lora_mobile_normal_rate;
-    uint8_t lora_mobile_burst_rate;
-    uint16_t lora_static_max_packets_per_day;
-    uint16_t lora_mobile_max_packets_per_day;
-    uint16_t fsk_min_packets_per_minute;
-    uint16_t ble_min_packets_per_minute;
-};
-
-struct sid_ep_cfg {
-    uint8_t metrics_enabled;
-    uint8_t metrics_periodicity;
-    uint8_t traffic_throttling_enabled;
-    uint8_t current_traffic_threshold_table_id;
-    uint32_t tag_enabled_mask;
-    struct sid_ep_cfg_traffic_thresholds traffic_thresholds_table;
-};
-
-extern void sid_ep_cfg_get_active_cap(struct sid_ep_cap *cap, bool clear);
-extern void sid_ep_cfg_get_active_cfg(struct sid_ep_cfg *cfg, bool clear);
-
-int cmd_sid_ep_cfg(const struct shell *shell, int32_t argc, const char **argv)
-{
-	CHECK_ARGUMENT_COUNT(argc, CMD_SID_EP_CFG_DESCRIPTION_ARG_REQUIRED,
-			     CMD_SID_EP_CFG_DESCRIPTION_ARG_OPTIONAL);
-
-	struct sid_ep_cap cap = {};
-        sid_ep_cfg_get_active_cap(&cap, false);
-
-	shell_info(shell, "Endpoint capabilities:");
-	shell_info(shell, "-------------------------------------------------------------");
-
-	shell_info(shell, "Capability version %d", cap.version);
-        shell_info(shell, "SDK version %d.%d.%d", cap.sdk_version >> 10, ((cap.sdk_version & 0x03F0) >> 4),
-                   cap.sdk_version & 0x000F);
-        shell_info(shell, "links enabled 0x%02x", cap.links_enabled);
-        shell_info(shell, "Links enabled BLE %d FSK %d LoRa %d", ((cap.links_enabled & 0x01) == 0x01),
-                   ((cap.links_enabled & 0x02) == 0x02), ((cap.links_enabled & 0x04) == 0x04));
-        shell_info(shell, "features_support 0x%04x", cap.features_support);
-        shell_info(shell, "Features support Static device %d Mobile Device %d Battery powered %d Line Powered %d ffs over "
-                   "fsk %d metrics enabled %d",
-                   ((cap.features_support & 0x1) == 0x01), ((cap.features_support & 0x2) == 0x02),
-                   ((cap.features_support & 0x4) == 0x04), ((cap.features_support & 0x8) == 0x08),
-                   ((cap.features_support & 0x10) == 0x10), ((cap.features_support & 0x20) == 0x20));
-        shell_info(shell, "Features support Coverage test %d Lora low latency %d Auto connect %d MLM %d SBDT %d Traffic "
-                   "throttling enabled %d",
-                   ((cap.features_support & 0x40) == 0x40), ((cap.features_support & 0x80) == 0x80),
-                   ((cap.features_support & 0x100) == 0x100), ((cap.features_support & 0x200) == 0x200),
-                   ((cap.features_support & 0x400) == 0x400), ((cap.features_support & 0x800)) == 0x800);
-        shell_info(shell, "Features support Capabilities lite enabled %d Metrics lite enabled %d DULT %d",
-                   ((cap.features_support & 0x1000) == 0x1000), ((cap.features_support & 0x2000) == 0x2000),
-                   ((cap.features_support & 0x4000) == 0x4000));
-        shell_info(shell, "Qualification id 0x%04x", cap.qualification_id);
-        shell_info(shell, "Traffic threshold table id %d", cap.traffic_threshold_id);
-        shell_info(shell, "metrics periodicity %d hours", (6 * cap.metrics_periodicity));
-        shell_info(shell, "BLE Tx power %d FSK Tx power %d LoRa Tx power %d", ((cap.max_tx_power >> 10) & 0x1F),
-                   ((cap.max_tx_power >> 5) & 0x1F), (cap.max_tx_power & 0x1F));
-
-	shell_info(shell, "");
-	shell_info(shell, "Endpoint configuration:");
-	shell_info(shell, "-------------------------------------------------------------");
-
-	struct sid_ep_cfg cfg = {};
-        sid_ep_cfg_get_active_cfg(&cfg, false);
-        shell_info(shell, "threshold table id %d", cfg.traffic_thresholds_table.table_id);
-
-        shell_info(shell, "LoRa static normal rate 1 message every %d %s",
-                     (cfg.traffic_thresholds_table.lora_static_normal_rate & 0x7F),
-                     (cfg.traffic_thresholds_table.lora_static_normal_rate & 0x80) ? "seconds" : "minutes");
-        shell_info(shell, "LoRa mobile normal rate 1 message every %d %s",
-                     (cfg.traffic_thresholds_table.lora_mobile_normal_rate & 0x7F),
-                     (cfg.traffic_thresholds_table.lora_mobile_normal_rate & 0x80) ? "seconds" : "minutes");
-        shell_info(shell, "LoRa static burst rate 1 message every %d %s",
-                     (cfg.traffic_thresholds_table.lora_static_burst_rate & 0x7F),
-                     (cfg.traffic_thresholds_table.lora_static_burst_rate & 0x80) ? "seconds" : "minutes");
-        shell_info(shell, "LoRa mobile burst rate 1 message every %d %s",
-                     (cfg.traffic_thresholds_table.lora_mobile_burst_rate & 0x7F),
-                     (cfg.traffic_thresholds_table.lora_mobile_burst_rate & 0x80) ? "seconds" : "minutes");
-        shell_info(shell, "LoRa static max packets per day %d",
-                     cfg.traffic_thresholds_table.lora_static_max_packets_per_day);
-        shell_info(shell, "LoRa mobile max packets per day %d",
-                     cfg.traffic_thresholds_table.lora_mobile_max_packets_per_day);
-        shell_info(shell, "FSK max packets per min %d", cfg.traffic_thresholds_table.fsk_min_packets_per_minute);
-        shell_info(shell, "FSK max packets per day %d", cfg.traffic_thresholds_table.fsk_min_packets_per_minute * 60 * 24);
-        shell_info(shell, "BLE max packets per min %d", cfg.traffic_thresholds_table.ble_min_packets_per_minute);
-        shell_info(shell, "BLE max packets per day %d", cfg.traffic_thresholds_table.ble_min_packets_per_minute * 60 * 24);
-
-	return 0;
-}
-
-enum sid_metrics_category_ids {
-    SID_METRICS_CAT_CONFIG = 0x00,
-    SID_METRICS_CAT_LORA_MAC = 0x01,
-    SID_METRICS_CAT_LORA_LINK = 0x02,
-    SID_METRICS_CAT_FSK_MAC = 0x03,
-    SID_METRICS_CAT_FSK_LINK = 0x04,
-    SID_METRICS_CAT_BLE_LINK = 0x05,
-    SID_METRICS_CAT_TIME_SYNC = 0x06,
-    SID_METRICS_CAT_NWK_SYNC = 0x07,
-    SID_METRICS_CAT_LMM = 0x08,
-    SID_METRICS_CAT_SSM_SEC = 0x09,
-    SID_METRICS_CAT_GWD = 0x0a,
-    SID_METRICS_CAT_REG_KR = 0x0b,
-    SID_METRICS_CAT_FFN = 0x0c,
-    SID_METRICS_CAT_SBDT = 0x0d,
-    SID_METRICS_CAT_MLM = 0x0e,
-    SID_METRICS_CAT_ACM = 0x0f,
-    SID_METRICS_CAT_GWS = 0x10,
-    SID_METRICS_CAT_DULT = 0x11,
-    SID_METRICS_CAT_LOCATION = 0x12,
-
-    SID_METRICS_AMOUNT_CATEGORIES = SID_METRICS_CAT_LOCATION,
-
-    SID_METRICS_CAT_ALL = 0x36,
-    SID_METRICS_CAT_LOW = 0x37,
-    SID_METRICS_CAT_MEDIUM = 0x38,
-    SID_METRICS_CAT_HIGH = 0x39,
-};
-
-enum sid_metrics_core_actions {
-    SID_METRICS_ACTION_NONE = 0xff,
-    SID_METRICS_ACTION_CLEAR = 0,
-    SID_METRICS_ACTION_ENABLE = 1,
-    SID_METRICS_ACTION_DISABLE = 2,
-    SID_METRICS_ACTION_READ = 3,
-    SID_METRICS_ACTIONS_AMOUNT = 4,
-};
-
-extern sid_error_t sid_metrics_core_cli_print_cat_by_priority(enum sid_metrics_category_ids category);
-extern sid_error_t sid_metrics_core_cli_execute_action(enum sid_metrics_core_actions action,
-                                                       enum sid_metrics_category_ids category,
-                                                       uint32_t raw_bitmask);
-
-int cmd_sid_print_metrics(const struct shell *shell, int32_t argc, const char **argv)
-{
-	CHECK_ARGUMENT_COUNT(argc, CMD_SID_PRINT_METRICS_DESCRIPTION_ARG_REQUIRED,
-			     CMD_SID_PRINT_METRICS_DESCRIPTION_ARG_OPTIONAL);
-
-	uint32_t category = atoi(argv[1]);
-
-	sid_metrics_core_cli_print_cat_by_priority((enum sid_metrics_category_ids)category);
-
-	return 0;
-}
-
-int cmd_sid_clear_metrics(const struct shell *shell, int32_t argc, const char **argv)
-{
-	CHECK_ARGUMENT_COUNT(argc, CMD_SID_PRINT_METRICS_DESCRIPTION_ARG_REQUIRED,
-			     CMD_SID_PRINT_METRICS_DESCRIPTION_ARG_OPTIONAL);
-
-	uint32_t category = atoi(argv[1]);
-
-	sid_metrics_core_cli_execute_action(SID_METRICS_ACTION_CLEAR, category, UINT32_MAX);
-
 	return 0;
 }
 

@@ -1,0 +1,12 @@
+patches:
+  - path: zephyr/xiao_nrf54l15_board_support.patch
+    sha256sum: 6556fefb69956d1fbe9c530dc7528d82700bcef67ccb22e71da1e3d2d002a7af
+    module: zephyr
+    author: OpenAI Codex
+    email: codex@openai.com
+    date: 2026-04-22
+    upstreamable: false
+    apply-command: git apply
+    comments: |
+      Adds Zephyr board support files for Seeed XIAO nRF54L15 and vendor
+      partition DTS files needed by the Sidewalk XIAO application port.

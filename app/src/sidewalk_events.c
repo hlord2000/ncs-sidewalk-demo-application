@@ -26,9 +26,6 @@
 #ifdef CONFIG_SID_END_DEVICE_PERSISTENT_LINK_MASK
 #include <settings_utils.h>
 #endif /* CONFIG_SID_END_DEVICE_PERSISTENT_LINK_MASK */
-#ifdef CONFIG_SID_END_DEVICE_PROP_RADIO
-#include <prop_radio.h>
-#endif /* CONFIG_SID_END_DEVICE_PROP_RADIO */
 
 #ifdef CONFIG_SIDEWALK_FILE_TRANSFER_DFU
 #include <sbdt/dfu_file_transfer.h>
@@ -37,34 +34,9 @@
 
 LOG_MODULE_REGISTER(sidewalk_events, CONFIG_SIDEWALK_LOG_LEVEL);
 
-static const char *link_mask_to_str(uint32_t link_mask)
-{
-	switch (link_mask) {
-	case SID_LINK_TYPE_1:
-		return "BLE";
-	case SID_LINK_TYPE_2:
-		return "FSK";
-	case SID_LINK_TYPE_3:
-		return "LoRa";
-	case SID_LINK_TYPE_1 | SID_LINK_TYPE_2:
-		return "BLE+FSK";
-	case SID_LINK_TYPE_1 | SID_LINK_TYPE_3:
-		return "BLE+LoRa";
-	case SID_LINK_TYPE_2 | SID_LINK_TYPE_3:
-		return "FSK+LoRa";
-	case SID_LINK_TYPE_1 | SID_LINK_TYPE_2 | SID_LINK_TYPE_3:
-		return "BLE+FSK+LoRa";
-	default:
-		return "UNKNOWN";
-	}
-}
-
 #ifdef CONFIG_SIDEWALK_SUBGHZ_SUPPORT
-#ifndef CONFIG_SID_END_DEVICE_PROP_RADIO
 static sid_pal_radio_rx_packet_t radio_rx_packet;
-#endif /* !CONFIG_SID_END_DEVICE_PROP_RADIO */
 
-#ifndef CONFIG_SID_END_DEVICE_PROP_RADIO
 static void radio_event_notifier(sid_pal_radio_events_t event)
 {
 	LOG_DBG("Radio event %d", event);
@@ -74,7 +46,6 @@ static void radio_irq_handler(void)
 {
 	LOG_DBG("Radio IRQ");
 }
-#endif /* !CONFIG_SID_END_DEVICE_PROP_RADIO */
 #endif /* CONFIG_SIDEWALK_SUBGHZ_SUPPORT */
 
 // private
@@ -118,9 +89,6 @@ void sidewalk_event_platform_init(sidewalk_ctx_t *sid, void *ctx)
 	}
 
 #ifdef CONFIG_SIDEWALK_SUBGHZ_SUPPORT
-#ifdef CONFIG_SID_END_DEVICE_PROP_RADIO
-	prop_radio_platform_init();
-#else
 	int32_t err = 0;
 	err = sid_pal_radio_init(radio_event_notifier, radio_irq_handler, &radio_rx_packet);
 	if (err) {
@@ -130,7 +98,6 @@ void sidewalk_event_platform_init(sidewalk_ctx_t *sid, void *ctx)
 	if (err) {
 		LOG_ERR("radio sleep err %d", err);
 	}
-#endif /* CONFIG_SID_END_DEVICE_PROP_RADIO */
 #endif /* CONFIG_SIDEWALK_SUBGHZ_SUPPORT */
 }
 
@@ -160,7 +127,9 @@ void sidewalk_event_autostart(sidewalk_ctx_t *sid, void *ctx)
 		sid->config.link_mask = DEFAULT_LM;
 	}
 
-	LOG_INF("Sidewalk link switch to %s", link_mask_to_str(sid->config.link_mask));
+	LOG_INF("Sidewalk link switch to %s", (SID_LINK_TYPE_3 & sid->config.link_mask) ? "LoRa" :
+					      (SID_LINK_TYPE_2 & sid->config.link_mask) ? "FSK" :
+											  "BLE");
 	sid_error_t e = sid_init(&sid->config, &sid->handle);
 	if (e) {
 		LOG_ERR("sid init err %d (%s)", (int)e, SID_ERROR_T_STR(e));
@@ -286,7 +255,9 @@ void sidewalk_event_link_switch(sidewalk_ctx_t *sid, void *ctx)
 	}
 	sid->config.link_mask = new_link_mask;
 
-	LOG_INF("Sidewalk link switch to %s", link_mask_to_str(new_link_mask));
+	LOG_INF("Sidewalk link switch to %s", (SID_LINK_TYPE_3 & new_link_mask) ? "LoRa" :
+					      (SID_LINK_TYPE_2 & new_link_mask) ? "FSK" :
+										  "BLE");
 #ifdef CONFIG_SID_END_DEVICE_PERSISTENT_LINK_MASK
 	int err = settings_utils_link_mask_set(new_link_mask);
 	if (err) {

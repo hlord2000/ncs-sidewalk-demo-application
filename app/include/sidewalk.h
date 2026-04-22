@@ -48,13 +48,11 @@ void sidewalk_start(sidewalk_ctx_t *context);
 
 int sidewalk_event_send(event_handler_t event, void *ctx, ctx_free free);
 
-#if defined(CONFIG_SID_END_DEVICE_PROP_RADIO) && defined(CONFIG_SIDEWALK_SUBGHZ_SUPPORT)
-#define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_1 | SID_LINK_TYPE_2 | SID_LINK_TYPE_3)
-#elif defined(CONFIG_SIDEWALK_LINK_MASK_BLE)
+#ifdef CONFIG_SIDEWALK_LINK_MASK_BLE
 #define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_1)
-#elif defined(CONFIG_SIDEWALK_LINK_MASK_FSK)
+#elif CONFIG_SIDEWALK_LINK_MASK_FSK
 #define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_2)
-#elif defined(CONFIG_SIDEWALK_LINK_MASK_LORA)
+#elif CONFIG_SIDEWALK_LINK_MASK_LORA
 #define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_3)
 #else
 #define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_1)
@@ -70,13 +68,6 @@ void sidewalk_event_link_switch(sidewalk_ctx_t *sid, void *ctx);
 void sidewalk_event_exit(sidewalk_ctx_t *sid, void *ctx);
 void sidewalk_event_reboot(sidewalk_ctx_t *sid, void *ctx);
 void sidewalk_event_platform_init(sidewalk_ctx_t *sid, void *ctx);
-#ifdef CONFIG_SID_END_DEVICE_PROP_RADIO
-void prop_radio_event_request(sidewalk_ctx_t *sid, void *ctx);
-#define OPTIONAL_EVENT_TO_NAME(event)                                                             \
-	event == prop_radio_event_request ? "prop_radio_event_request" :
-#else
-#define OPTIONAL_EVENT_TO_NAME(event)
-#endif
 
 #define EVENT_TO_NAME(event)                                                                       \
 	event == sidewalk_event_process	      ? "sidewalk_event_process" :                         \
@@ -89,6 +80,5 @@ void prop_radio_event_request(sidewalk_ctx_t *sid, void *ctx);
 	event == sidewalk_event_exit	      ? "sidewalk_event_exit" :                            \
 	event == sidewalk_event_reboot	      ? "sidewalk_event_reboot" :                          \
 	event == sidewalk_event_platform_init ? "sidewalk_event_platform_init" :                   \
-	OPTIONAL_EVENT_TO_NAME(event)                                                              \
 						"use addr2line to get name of event"
 #endif /* SIDEWALK_APP_H */
