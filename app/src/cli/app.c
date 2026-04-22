@@ -7,6 +7,7 @@
 #include <app.h>
 #include <sidewalk.h>
 #include <app_ble_config.h>
+#include <cli/app_cli_ui.h>
 #include <app_subGHz_config.h>
 #include <sid_hal_reset_ifc.h>
 #include <sid_hal_memory_ifc.h>
@@ -19,6 +20,7 @@
 LOG_MODULE_REGISTER(app, CONFIG_SIDEWALK_LOG_LEVEL);
 
 static uint32_t persistent_link_mask;
+static sidewalk_ctx_t sid_ctx;
 
 static void on_sidewalk_event(bool in_isr, void *context)
 {
@@ -32,6 +34,7 @@ static void on_sidewalk_msg_received(const struct sid_msg_desc *msg_desc, const 
 				     void *context)
 {
 	LOG_HEXDUMP_INF((uint8_t *)msg->data, msg->size, "Message received success");
+	app_cli_ui_notify_activity(APP_CLI_UI_ACTIVITY_RX);
 	printk(JSON_NEW_LINE(JSON_OBJ(JSON_NAME(
 		"on_msg_received", JSON_OBJ(JSON_VAL_sid_msg_desc("sid_msg_desc", msg_desc, 1))))));
 }
@@ -39,6 +42,7 @@ static void on_sidewalk_msg_received(const struct sid_msg_desc *msg_desc, const 
 static void on_sidewalk_msg_sent(const struct sid_msg_desc *msg_desc, void *context)
 {
 	LOG_INF("Message send success");
+	app_cli_ui_notify_activity(APP_CLI_UI_ACTIVITY_TX);
 	printk(JSON_NEW_LINE(JSON_OBJ(JSON_NAME(
 		"on_msg_sent", JSON_OBJ(JSON_VAL_sid_msg_desc("sid_msg_desc", msg_desc, 0))))));
 }
@@ -47,6 +51,7 @@ static void on_sidewalk_send_error(sid_error_t error, const struct sid_msg_desc 
 				   void *context)
 {
 	LOG_ERR("Message send err %d", (int)error);
+	app_cli_ui_notify_activity(APP_CLI_UI_ACTIVITY_ERROR);
 	printk(JSON_NEW_LINE(JSON_OBJ(JSON_NAME(
 		"on_send_error",
 		JSON_OBJ(JSON_LIST_2(JSON_VAL_sid_error_t("error", error),
@@ -121,7 +126,7 @@ static bool gatt_authorize(struct bt_conn *conn, const struct bt_gatt_attr *attr
 	}
 
 	if (cinfo.id == BT_ID_SIDEWALK) {
-		if (sid_ble_bt_attr_is_SMP(attr)) {
+		if (sid_ble_bt_attr_is_SMP(attr) || app_cli_ui_bt_attr_is_nus(attr)) {
 			return false;
 		}
 	}
@@ -152,8 +157,6 @@ static struct sid_time_sync_config default_time_sync_config = {
 
 void app_start(void)
 {
-	static sidewalk_ctx_t sid_ctx = { 0 };
-
 	static struct sid_event_callbacks event_callbacks = {
 		.context = &sid_ctx,
 		.on_event = on_sidewalk_event,
@@ -184,6 +187,11 @@ void app_start(void)
 	if (err) {
 		LOG_ERR("Registering GATT authorization callbacks failed (err %d)", err);
 		return;
+	}
+
+	err = app_cli_ui_init(&sid_ctx);
+	if (err) {
+		LOG_ERR("Failed to initialize CLI UI helpers (err %d)", err);
 	}
 
 	sidewalk_start(&sid_ctx);

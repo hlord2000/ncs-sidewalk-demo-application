@@ -58,6 +58,47 @@ config SHELL_BACKEND_SERIAL_TX_RING_BUFFER_SIZE
 config SHELL_BACKEND_SERIAL_RX_RING_BUFFER_SIZE
 	default 1024
 
+config SID_END_DEVICE_NUS_SHELL
+	bool "Enable BLE NUS shell companion"
+	depends on BT
+	select SHELL_BT_NUS
+	help
+	  Exposes the existing Zephyr shell over Nordic UART Service on a
+	  separate BLE advertiser so browser tools can talk to the DUT shell
+	  without taking over the Sidewalk BLE identity.
+
+if SID_END_DEVICE_NUS_SHELL
+
+config SID_END_DEVICE_NUS_DEVICE_NAME
+	string "BLE name for the NUS shell advertiser"
+	default "XIAO-WebShell"
+
+config SID_END_DEVICE_NUS_ADV_INTERVAL_MS
+	int "NUS advertising interval in ms"
+	range 40 2000
+	default 200
+	help
+	  Keep this moderate so the extra advertiser remains discoverable
+	  without aggressively competing with Sidewalk BLE timing.
+
+config SID_END_DEVICE_NUS_CONN_INTERVAL_MIN_MS
+	int "Preferred minimum NUS connection interval in ms"
+	range 15 4000
+	default 30
+
+config SID_END_DEVICE_NUS_CONN_INTERVAL_MAX_MS
+	int "Preferred maximum NUS connection interval in ms"
+	range 15 4000
+	default 60
+
+config SHELL_BT_NUS_TX_RING_BUFFER_SIZE
+	default 256
+
+config SHELL_BT_NUS_RX_RING_BUFFER_SIZE
+	default 256
+
+endif # SID_END_DEVICE_NUS_SHELL
+
 config SID_END_DEVICE_CLI_ALIVE_MAKRER
     bool "Enable alive marker"
     help

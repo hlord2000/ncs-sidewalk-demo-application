@@ -46,6 +46,7 @@ endif()
 
 if(CONFIG_SID_END_DEVICE_CLI)
     target_sources(app PRIVATE
+        src/cli/app_cli_ui.c
         src/cli/app_dut.c
         src/cli/app_shell.c
     )
