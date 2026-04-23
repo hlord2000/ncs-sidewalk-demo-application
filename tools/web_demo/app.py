@@ -7,15 +7,18 @@ import queue
 import sqlite3
 from datetime import timedelta
 from functools import wraps
+from pathlib import Path
 
 from flask import (
     Flask,
     Response,
+    abort,
     flash,
     jsonify,
     redirect,
     render_template,
     request,
+    send_file,
     session,
     url_for,
 )
@@ -28,6 +31,18 @@ from storage import DemoStore
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
+
+WEB_DEMO_ROOT = Path(__file__).resolve().parent
+FLASH_IMAGE_MANIFEST = {
+    "aodemo1": {
+        "name": "AODemo1.hex",
+        "path": WEB_DEMO_ROOT / "firmware/AODemo1.hex",
+    },
+    "aodemo2": {
+        "name": "AODemo2.hex",
+        "path": WEB_DEMO_ROOT / "firmware/AODemo2.hex",
+    },
+}
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
@@ -125,6 +140,24 @@ def _sync_topics() -> None:
     cloud_service.sync_topics(store.unique_uplink_topics())
 
 
+def _available_firmware_images() -> list[dict]:
+    images = []
+    for image_id, entry in FLASH_IMAGE_MANIFEST.items():
+        path = entry["path"]
+        if not path.is_file():
+            LOGGER.warning("Firmware image missing from dashboard manifest: %s", path)
+            continue
+        images.append(
+            {
+                "id": image_id,
+                "name": entry["name"],
+                "sizeBytes": path.stat().st_size,
+                "downloadUrl": url_for("firmware_image", image_id=image_id),
+            }
+        )
+    return images
+
+
 def _load_or_refresh_artifacts(device: dict) -> tuple[dict, dict, dict]:
     wireless_device_json = device.get("wireless_device_json")
     device_profile_json = device.get("device_profile_json")
@@ -210,8 +243,28 @@ def dashboard():
         "nusTxUuid": DemoConfig.NUS_TX_UUID,
         "webShellNamePrefix": (selected_device or {}).get("ble_name_prefix", "XIAO-WebShell"),
         "adminUrl": url_for("admin") if user["role"] == "admin" else "",
+        "firmwareImages": _available_firmware_images(),
     }
     return render_template("dashboard.html", page_config=page_config)
+
+
+@app.get("/firmware-images/<image_id>")
+@login_required
+def firmware_image(image_id: str):
+    entry = FLASH_IMAGE_MANIFEST.get(image_id)
+    if entry is None:
+        abort(404)
+
+    path = entry["path"]
+    if not path.is_file():
+        abort(404)
+
+    return send_file(
+        path,
+        mimetype="text/plain; charset=utf-8",
+        download_name=entry["name"],
+        max_age=0,
+    )
 
 
 @app.get("/admin")

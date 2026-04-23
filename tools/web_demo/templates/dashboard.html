@@ -4,7 +4,8 @@
 <script>
   window.DEMO_CONFIG = {{ page_config | tojson }};
 </script>
-<script defer src="{{ url_for('static', filename='app.js', v='20260406nordic') }}"></script>
+<script defer src="{{ url_for('static', filename='vendor/dap.umd.js', v='20260423webusb') }}"></script>
+<script defer src="{{ url_for('static', filename='app.js', v='20260423firmware') }}"></script>
 {% endblock %}
 {% block body %}
 <main class="page-shell">
@@ -137,6 +138,50 @@
             spellcheck="false">
           <button type="submit">Send Command</button>
         </form>
+      </div>
+    </article>
+
+    <article class="panel panel-wide panel-flash">
+      <div class="panel-head">
+        <p class="eyebrow">Probe over USB</p>
+        <h2>WebUSB Flash</h2>
+        <p class="muted">Choose the XIAO CMSIS-DAP probe from a Chromium browser, load a bundled image or your own <code>.hex</code>, and flash directly over WebUSB with on-target verify.</p>
+      </div>
+      <div class="stack flash-stack">
+        <div class="inline-fields flash-source-grid">
+          <label>
+            <span>Bundled Firmware</span>
+            <select id="flash-preset">
+              <option value="">Choose built-in image</option>
+              {% for image in page_config.firmwareImages %}
+              <option value="{{ image.id }}">{{ image.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>Custom Firmware Image</span>
+            <input id="flash-file" type="file" accept=".hex,.ihex,.txt,text/plain">
+          </label>
+        </div>
+        <p class="muted flash-note">Built-in images ship with this dashboard release. Choosing a custom file clears the bundled selection.</p>
+        <div class="inline-actions">
+          <button id="flash-connect" type="button">Choose Probe</button>
+          <button id="flash-disconnect" type="button" class="ghost-button">Disconnect Probe</button>
+        </div>
+        <div class="inline-actions inline-actions--triple">
+          <button id="flash-button" type="button">Flash Firmware</button>
+          <button id="flash-erase" type="button" class="ghost-button">Erase Device</button>
+          <button id="flash-recover" type="button" class="ghost-button">Recover / Unlock</button>
+        </div>
+        <button id="flash-clear-log" type="button" class="ghost-button flash-clear-button">Clear Log</button>
+        <p class="muted flash-note">On nRF54L, recover uses CTRL-AP erase-all, so it wipes flash while clearing debug lock.</p>
+        <div class="monitor-meta">
+          <span id="flash-image-chip">No firmware selected</span>
+          <span id="flash-probe-chip">No probe selected</span>
+          <span id="flash-support-chip">Checking browser support</span>
+        </div>
+        <pre id="flash-status" class="status-box">Ready</pre>
+        <pre id="flash-log" class="flash-log" aria-label="WebUSB flash log" role="log"></pre>
       </div>
     </article>
 

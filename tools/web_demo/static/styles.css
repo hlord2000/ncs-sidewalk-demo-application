@@ -572,9 +572,17 @@ button:active {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.inline-actions--triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .console-actions {
   grid-template-columns: repeat(2, minmax(12rem, max-content));
   justify-content: start;
+}
+
+.flash-source-grid {
+  align-items: end;
 }
 
 .command-row {
@@ -656,6 +664,7 @@ select:focus {
 .flash-box,
 .error-box,
 .status-box,
+.flash-log,
 .terminal,
 .event-log {
   border: 1px solid var(--line);
@@ -697,6 +706,32 @@ select:focus {
   white-space: pre-wrap;
   font-family: var(--mono);
   font-size: 0.9rem;
+}
+
+.flash-log {
+  min-height: 18rem;
+  max-height: min(34rem, 52vh);
+  margin: 0;
+  overflow: auto;
+  padding: 1rem;
+  background:
+    linear-gradient(180deg, rgba(0, 169, 206, 0.06), transparent 2.5rem),
+    linear-gradient(180deg, #2f3b44 0%, #333f48 100%);
+  color: #f7fbfb;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.flash-clear-button {
+  justify-self: start;
+  width: fit-content;
+}
+
+.flash-note {
+  margin: 0;
 }
 
 .terminal {
