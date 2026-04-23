@@ -21,12 +21,10 @@ This repository packages:
 
 - the extracted Sidewalk end-device demo firmware
 - the XIAO nRF54L15 web-demo BLE shell and button-trigger additions
-- the Flask/Railway web app for Sidewalk uplink and downlink testing
 
 ## Repository layout
 
 - [`app/`](/opt/ncs/sdks/ncs-sdk-sidewalk/ncs-sidewalk-demo-application/app): Zephyr/NCS firmware application
-- [`tools/web_demo/`](/opt/ncs/sdks/ncs-sdk-sidewalk/ncs-sidewalk-demo-application/tools/web_demo): Flask + Web Bluetooth dashboard
 - [`west.yml`](/opt/ncs/sdks/ncs-sdk-sidewalk/ncs-sidewalk-demo-application/west.yml): workspace manifest for NCS + Sidewalk add-on
 - [`zephyr/module.yml`](/opt/ncs/sdks/ncs-sdk-sidewalk/ncs-sidewalk-demo-application/zephyr/module.yml): Zephyr module metadata for this repository
 
@@ -69,12 +67,9 @@ That build includes:
 
 ## Web dashboard
 
-The web dashboard lives in [`tools/web_demo/`](/opt/ncs/sdks/ncs-sdk-sidewalk/ncs-sidewalk-demo-application/tools/web_demo) and is prepared for Railway deployment.
+The web dashboard now lives in the standalone repository:
 
-See:
-
-- [`tools/web_demo/README.md`](/opt/ncs/sdks/ncs-sdk-sidewalk/ncs-sidewalk-demo-application/tools/web_demo/README.md)
-- [`tools/web_demo/railway.json`](/opt/ncs/sdks/ncs-sdk-sidewalk/ncs-sidewalk-demo-application/tools/web_demo/railway.json)
+- [`hlord2000/Sidewalk_Demo_Web_BLE`](https://github.com/hlord2000/Sidewalk_Demo_Web_BLE)
 
 ## Notes
 
