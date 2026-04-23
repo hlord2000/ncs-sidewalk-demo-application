@@ -26,6 +26,9 @@
 #endif
 #include <sidewalk_dfu/nordic_dfu.h>
 #include <buttons.h>
+#if defined(CONFIG_SID_END_DEVICE_HELLO_COMPARE_AUTOSWITCH)
+#include <buttons_internal.h>
+#endif
 #include <zephyr/kernel.h>
 #include <zephyr/smf.h>
 #include <zephyr/logging/log.h>
@@ -38,6 +41,30 @@ LOG_MODULE_REGISTER(app, CONFIG_SIDEWALK_LOG_LEVEL);
 #define PARAM_UNUSED (0U)
 
 static uint32_t persistent_link_mask;
+
+#if defined(CONFIG_SID_END_DEVICE_HELLO_COMPARE_AUTOSWITCH)
+static void compare_auto_switch_to_fsk(struct k_work *work);
+static void compare_auto_switch_to_lora(struct k_work *work);
+
+static K_WORK_DELAYABLE_DEFINE(compare_switch_to_fsk_work, compare_auto_switch_to_fsk);
+static K_WORK_DELAYABLE_DEFINE(compare_switch_to_lora_work, compare_auto_switch_to_lora);
+
+static void compare_auto_switch_to_fsk(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	LOG_INF("Compare auto-switch to FSK");
+	button_pressed(DK_BTN3, BUTTON_ACTION_SHORT_PRESS);
+}
+
+static void compare_auto_switch_to_lora(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	LOG_INF("Compare auto-switch to BLE+LoRa");
+	button_pressed(DK_BTN3, BUTTON_ACTION_SHORT_PRESS);
+}
+#endif
 
 static void on_sidewalk_event(bool in_isr, void *context)
 {
@@ -412,4 +439,11 @@ void app_start(void)
 	sidewalk_start(&sid_ctx);
 	sidewalk_event_send(sidewalk_event_platform_init, NULL, NULL);
 	sidewalk_event_send(sidewalk_event_autostart, NULL, NULL);
+
+#if defined(CONFIG_SID_END_DEVICE_HELLO_COMPARE_AUTOSWITCH)
+	k_work_schedule(&compare_switch_to_fsk_work,
+			K_SECONDS(CONFIG_SID_END_DEVICE_HELLO_COMPARE_FSK_DELAY_S));
+	k_work_schedule(&compare_switch_to_lora_work,
+			K_SECONDS(CONFIG_SID_END_DEVICE_HELLO_COMPARE_LORA_DELAY_S));
+#endif
 }

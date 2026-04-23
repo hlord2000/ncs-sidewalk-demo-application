@@ -83,6 +83,22 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_SUBCMD_SET_END);
 
 SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_sid_flow,
+	SHELL_CMD_ARG(set, NULL, CMD_SID_FLOW_SET_DESCRIPTION, cmd_sid_flow_set,
+		      CMD_SID_FLOW_SET_ARG_REQUIRED, CMD_SID_FLOW_SET_ARG_OPTIONAL),
+	SHELL_CMD_ARG(switch, NULL, CMD_SID_FLOW_SWITCH_DESCRIPTION, cmd_sid_flow_switch,
+		      CMD_SID_FLOW_SWITCH_ARG_REQUIRED, CMD_SID_FLOW_SWITCH_ARG_OPTIONAL),
+	SHELL_CMD_ARG(send, NULL, CMD_SID_FLOW_SEND_DESCRIPTION, cmd_sid_flow_send,
+		      CMD_SID_FLOW_SEND_ARG_REQUIRED, CMD_SID_FLOW_SEND_ARG_OPTIONAL),
+	SHELL_CMD_ARG(status, NULL, CMD_SID_FLOW_STATUS_DESCRIPTION, cmd_sid_flow_status,
+		      CMD_SID_FLOW_STATUS_ARG_REQUIRED, CMD_SID_FLOW_STATUS_ARG_OPTIONAL),
+	SHELL_CMD_ARG(cancel, NULL, CMD_SID_FLOW_CANCEL_DESCRIPTION, cmd_sid_flow_cancel,
+		      CMD_SID_FLOW_CANCEL_ARG_REQUIRED, CMD_SID_FLOW_CANCEL_ARG_OPTIONAL),
+	SHELL_CMD_ARG(connect, NULL, CMD_SID_FLOW_CONNECT_DESCRIPTION, cmd_sid_flow_connect,
+		      CMD_SID_FLOW_CONNECT_ARG_REQUIRED, CMD_SID_FLOW_CONNECT_ARG_OPTIONAL),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_services,
 	SHELL_CMD_ARG(nordic_dfu, NULL, CMD_NORDIC_DFU_DESCRIPTION, cmd_nordic_dfu,
 		      CMD_NORDIC_DFU_ARG_REQUIRED, CMD_NORDIC_DFU_ARG_OPTIONAL),
@@ -120,6 +136,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(sdk_config, NULL, CMD_SID_SDK_CONFIG_DESCRIPTION, cmd_sid_sdk_config,
 		      CMD_SID_SDK_CONFIG_DESCRIPTION_ARG_REQUIRED,
 		      CMD_SID_SDK_CONFIG_DESCRIPTION_ARG_OPTIONAL),
+	SHELL_CMD_ARG(flow, &sub_sid_flow, CMD_SID_FLOW_DESCRIPTION, NULL,
+		      CMD_SID_FLOW_ARG_REQUIRED, CMD_SID_FLOW_ARG_OPTIONAL),
 #ifdef CONFIG_SIDEWALK_TRACE_HEAP
 	SHELL_CMD_ARG(heap_stat, NULL, "print heap statistics", cmd_sid_print_heap_stats, 1, 0),
 #endif
@@ -170,6 +188,34 @@ static bool cli_parse_link_mask_opt(uint8_t arg, uint32_t *link_mask)
 		return false;
 	}
 	return true;
+}
+
+static bool cli_parse_hello_flow_target(const char *arg, uint32_t *link_mask,
+					uint32_t *send_link_mask)
+{
+	if (arg == NULL || link_mask == NULL || send_link_mask == NULL) {
+		return false;
+	}
+
+	if (strcmp(arg, "ble") == 0) {
+		*link_mask = SID_LINK_TYPE_1;
+		*send_link_mask = SID_LINK_TYPE_1;
+		return true;
+	}
+
+	if (strcmp(arg, "fsk") == 0) {
+		*link_mask = SID_LINK_TYPE_2;
+		*send_link_mask = SID_LINK_TYPE_2;
+		return true;
+	}
+
+	if (strcmp(arg, "lora") == 0) {
+		*link_mask = SID_LINK_TYPE_1 | SID_LINK_TYPE_3;
+		*send_link_mask = SID_LINK_TYPE_3;
+		return true;
+	}
+
+	return false;
 }
 
 static int sid_option_get_window_separation_ms(uint32_t value,
@@ -374,6 +420,40 @@ int cmd_sid_stop(const struct shell *shell, int32_t argc, const char **argv)
 	return cmd_sid_simple_param(dut_event_stop, &link_type);
 }
 
+int cmd_sid_flow_set(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_SET_ARG_REQUIRED, CMD_SID_FLOW_SET_ARG_OPTIONAL);
+
+	uint32_t link_mask = 0;
+	uint32_t send_link_mask = 0;
+
+	if (!cli_parse_hello_flow_target(argv[1], &link_mask, &send_link_mask)) {
+		shell_error(shell, "invalid flow target, use ble, fsk, or lora");
+		return -EINVAL;
+	}
+
+	cli_cfg.send_link_type = send_link_mask;
+	return cmd_sid_simple_param(dut_event_flow_set, &link_mask);
+}
+
+int cmd_sid_flow_switch(const struct shell *shell, int32_t argc, const char **argv)
+{
+	ARG_UNUSED(shell);
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_SWITCH_ARG_REQUIRED,
+			     CMD_SID_FLOW_SWITCH_ARG_OPTIONAL);
+
+	return sidewalk_event_send(dut_event_flow_switch, NULL, NULL);
+}
+
+int cmd_sid_flow_connect(const struct shell *shell, int32_t argc, const char **argv)
+{
+	ARG_UNUSED(shell);
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_CONNECT_ARG_REQUIRED,
+			     CMD_SID_FLOW_CONNECT_ARG_OPTIONAL);
+
+	return sidewalk_event_send(sidewalk_event_connect, NULL, NULL);
+}
+
 static void free_sid_send_event_ctx(void *ctx)
 {
 	sidewalk_msg_t *send = (sidewalk_msg_t *)ctx;
@@ -386,23 +466,31 @@ static void free_sid_send_event_ctx(void *ctx)
 	sid_hal_free(send);
 }
 
-int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
+static int cmd_sid_alloc_send(const struct shell *shell, int32_t argc, const char **argv,
+			      int32_t opt_start, enum sid_link_type default_link_type,
+			      sidewalk_msg_t **out_send)
 {
-	CHECK_ARGUMENT_COUNT(argc, CMD_SID_SEND_ARG_REQUIRED, CMD_SID_SEND_ARG_OPTIONAL);
-
 	struct sid_msg msg = (struct sid_msg){ .size = 0, .data = NULL };
 	struct sid_msg_desc desc = (struct sid_msg_desc){
 		.type = SID_MSG_TYPE_NOTIFY,
-		.link_type = cli_cfg.send_link_type,
+		.link_type = default_link_type,
 		.link_mode = SID_LINK_MODE_CLOUD,
 	};
+	sidewalk_msg_t *send = NULL;
+	int err = 0;
 
-	for (int opt = 1; opt < argc; opt++) {
+	if (out_send == NULL) {
+		return -EINVAL;
+	}
+	*out_send = NULL;
+
+	for (int opt = opt_start; opt < argc; opt++) {
 		if (strcmp("-t", argv[opt]) == 0) {
 			opt++;
 			if (opt >= argc) {
 				shell_error(shell, "-t need a value");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			switch (argv[opt][0]) {
 			case '0':
@@ -419,7 +507,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 				break;
 			default: {
 				shell_error(shell, "invalid type");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			}
 			continue;
@@ -428,7 +517,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 			opt++;
 			if (opt >= argc) {
 				shell_error(shell, "-d need a value");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			switch (argv[opt][0]) {
 			case '1':
@@ -439,7 +529,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 				break;
 			default: {
 				shell_error(shell, "invalid mode");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			}
 			continue;
@@ -448,7 +539,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 			opt++;
 			if (opt >= argc) {
 				shell_error(shell, "-o need a value");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			switch (argv[opt][0]) {
 			case '0':
@@ -461,7 +553,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 				break;
 			default: {
 				shell_error(shell, "invalid configuration");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			}
 			continue;
@@ -470,7 +563,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 			opt++;
 			if (opt >= argc) {
 				shell_error(shell, "-r need a value");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			uint8_t msg_buffer[strlen(argv[opt]) / 2];
 			memset(msg_buffer, 0, sizeof(msg_buffer));
@@ -478,11 +572,13 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 					   sizeof(msg_buffer));
 			if (!msg.size) {
 				shell_error(shell, "failed to parse value as hexstring");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			msg.data = sid_hal_malloc(msg.size);
 			if (!msg.data) {
-				return -ENOMEM;
+				err = -ENOMEM;
+				goto fail;
 			}
 			memcpy(msg.data, msg_buffer, msg.size);
 			continue;
@@ -491,12 +587,14 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 			opt++;
 			if (opt >= argc) {
 				shell_error(shell, "-l need a value");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 
 			if (!cli_parse_link_mask_opt(atoi(argv[opt]), &desc.link_type)) {
 				shell_error(shell, "invalid value");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			continue;
 		}
@@ -504,14 +602,16 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 			opt++;
 			if (opt >= argc) {
 				shell_error(shell, "-i need a value");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			char *end = NULL;
 			long data_raw = strtol(argv[opt], &end, 0);
 			if (!IN_RANGE(data_raw, 0, UINT16_MAX) || end == argv[opt]) {
 				shell_error(shell, "Invalid argument [%s], must be value <0, %x>",
 					    argv[opt], (unsigned int)UINT16_MAX);
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			cli_cfg.rsp_msg_id = (uint16_t)data_raw;
 			continue;
@@ -519,7 +619,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 		if (strcmp("-a", argv[opt]) == 0) {
 			if (opt + 3 > argc) {
 				shell_error(shell, "-a need 3 positional arguments");
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 
 			const char *ack = argv[++opt];
@@ -530,7 +631,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 			if (!IN_RANGE(ack_val, 0, 1) || end == ack) {
 				shell_error(shell, "Invalid argument [%s], must be value <0, %x>",
 					    ack, 1);
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			desc.msg_desc_attr.tx_attr.request_ack = (bool)ack_val;
 
@@ -538,7 +640,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 			if (!IN_RANGE(ack_val, 0, UINT8_MAX) || end == ack) {
 				shell_error(shell, "Invalid argument [%s], must be value <0, %x>",
 					    retry, (unsigned int)UINT8_MAX);
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			desc.msg_desc_attr.tx_attr.num_retries = (uint8_t)retry_val;
 
@@ -546,7 +649,8 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 			if (!IN_RANGE(ttl_val, 0, UINT16_MAX) || end == ack) {
 				shell_error(shell, "Invalid argument [%s], must be value <0, %x>",
 					    ttl, (unsigned int)UINT16_MAX);
-				return -EINVAL;
+				err = -EINVAL;
+				goto fail;
 			}
 			desc.msg_desc_attr.tx_attr.ttl_in_seconds = (uint16_t)ttl_val;
 		}
@@ -561,27 +665,109 @@ int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
 		msg.size = strlen(argv[argc - 1]);
 		msg.data = sid_hal_malloc(msg.size);
 		if (!msg.data) {
-			return -ENOMEM;
+			err = -ENOMEM;
+			goto fail;
 		}
 		memcpy(msg.data, argv[argc - 1], msg.size);
 	}
 
-	sidewalk_msg_t *send = sid_hal_malloc(sizeof(sidewalk_msg_t));
+	send = sid_hal_malloc(sizeof(sidewalk_msg_t));
 	if (!send) {
-		sid_hal_free(msg.data);
-		return -ENOMEM;
+		err = -ENOMEM;
+		goto fail;
 	}
 	memset(send, 0x0, sizeof(*send));
 	memcpy(&send->msg, &msg, sizeof(struct sid_msg));
 	memcpy(&send->desc, &desc, sizeof(struct sid_msg_desc));
+	*out_send = send;
+	return 0;
 
-	int err = sidewalk_event_send(sidewalk_event_send_msg, send, free_sid_send_event_ctx);
+fail:
+	if (send != NULL) {
+		free_sid_send_event_ctx(send);
+	} else if (msg.data != NULL) {
+		sid_hal_free(msg.data);
+	}
+	return err;
+}
+
+int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_SEND_ARG_REQUIRED, CMD_SID_SEND_ARG_OPTIONAL);
+
+	sidewalk_msg_t *send = NULL;
+	int err = cmd_sid_alloc_send(shell, argc, argv, 1, cli_cfg.send_link_type, &send);
+	if (err) {
+		return err;
+	}
+
+	err = sidewalk_event_send(sidewalk_event_send_msg, send, free_sid_send_event_ctx);
 	if (err) {
 		free_sid_send_event_ctx(send);
 		return -ENOMSG;
 	}
 
 	return 0;
+}
+
+int cmd_sid_flow_send(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_SEND_ARG_REQUIRED, CMD_SID_FLOW_SEND_ARG_OPTIONAL);
+
+	uint32_t target_link_mask = 0;
+	uint32_t send_link_mask = 0;
+	sidewalk_msg_t *send = NULL;
+	dut_flow_send_ctx_t *flow_send = NULL;
+
+	if (!cli_parse_hello_flow_target(argv[1], &target_link_mask, &send_link_mask)) {
+		shell_error(shell, "invalid flow target, use ble, fsk, or lora");
+		return -EINVAL;
+	}
+
+	int err = cmd_sid_alloc_send(shell, argc, argv, 2, (enum sid_link_type)send_link_mask,
+				     &send);
+	if (err) {
+		return err;
+	}
+	send->desc.link_type = (enum sid_link_type)send_link_mask;
+	cli_cfg.send_link_type = send->desc.link_type;
+
+	flow_send = sid_hal_malloc(sizeof(*flow_send));
+	if (flow_send == NULL) {
+		free_sid_send_event_ctx(send);
+		return -ENOMEM;
+	}
+
+	memset(flow_send, 0, sizeof(*flow_send));
+	flow_send->target_link_mask = target_link_mask;
+	memcpy(&flow_send->send, send, sizeof(*send));
+	sid_hal_free(send);
+
+	err = sidewalk_event_send(dut_event_flow_send, flow_send, NULL);
+	if (err) {
+		dut_flow_send_ctx_free(flow_send);
+		return -ENOMSG;
+	}
+
+	return 0;
+}
+
+int cmd_sid_flow_status(const struct shell *shell, int32_t argc, const char **argv)
+{
+	ARG_UNUSED(shell);
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_STATUS_ARG_REQUIRED,
+			     CMD_SID_FLOW_STATUS_ARG_OPTIONAL);
+
+	return sidewalk_event_send(dut_event_flow_status, NULL, NULL);
+}
+
+int cmd_sid_flow_cancel(const struct shell *shell, int32_t argc, const char **argv)
+{
+	ARG_UNUSED(shell);
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_CANCEL_ARG_REQUIRED,
+			     CMD_SID_FLOW_CANCEL_ARG_OPTIONAL);
+
+	return sidewalk_event_send(dut_event_flow_cancel, NULL, NULL);
 }
 
 int cmd_sid_factory_reset(const struct shell *shell, int32_t argc, const char **argv)

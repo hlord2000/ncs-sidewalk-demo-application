@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+#include <zephyr/dt-bindings/input/input-event-codes.h>
 #include <zephyr/dt-bindings/lora_lbm/sx126x.h>
 
 / {
@@ -14,11 +15,20 @@
 	aliases {
 		lora-transceiver = &lora_semtech_sx126xmb2xxs;
 	};
+
+	app_cli_ui_longpress: app-cli-ui-longpress {
+		compatible = "zephyr,input-longpress";
+		input = <&buttons>;
+		input-codes = <INPUT_KEY_ENTER>;
+		long-codes = <INPUT_KEY_POWER>;
+		long-delay-ms = <2000>;
+	};
 };
 
 &usr_btn {
-	gpios = <&xiao_d 0 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
+	gpios = <&xiao_d 0 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 	label = "Sidewalk Button";
+	zephyr,code = <INPUT_KEY_ENTER>;
 };
 
 &i2c22 {

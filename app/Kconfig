@@ -29,6 +29,27 @@ config SID_END_DEVICE_ECHO_MSGS
       Echo received messages back to Sidewlak cloud.
       Works with GET and SET messages types.
 
+config SID_END_DEVICE_HELLO_COMPARE_AUTOSWITCH
+    bool "Auto-run DK hello link-switch sequence"
+    help
+      For single-button boards used in compare testing, inject the same
+      short-press sequence normally driven by DK button 3:
+      BLE -> FSK -> BLE+LoRa.
+
+if SID_END_DEVICE_HELLO_COMPARE_AUTOSWITCH
+
+config SID_END_DEVICE_HELLO_COMPARE_FSK_DELAY_S
+    int "Delay before switching from BLE to FSK"
+    range 1 120
+    default 6
+
+config SID_END_DEVICE_HELLO_COMPARE_LORA_DELAY_S
+    int "Delay before switching from FSK to BLE+LoRa"
+    range 1 180
+    default 12
+
+endif # SID_END_DEVICE_HELLO_COMPARE_AUTOSWITCH
+
 endif #SID_END_DEVICE_HELLO
 
 if SID_END_DEVICE_SENSOR_MONITORING
@@ -63,9 +84,9 @@ config SID_END_DEVICE_NUS_SHELL
 	depends on BT
 	select SHELL_BT_NUS
 	help
-	  Exposes the existing Zephyr shell over Nordic UART Service on a
-	  separate BLE advertiser so browser tools can talk to the DUT shell
-	  without taking over the Sidewalk BLE identity.
+	  Exposes the Zephyr shell over Nordic UART Service on a separate BLE
+	  advertiser so browser tools can talk to the DUT shell without taking
+	  over the Sidewalk BLE identity.
 
 if SID_END_DEVICE_NUS_SHELL
 
@@ -77,9 +98,6 @@ config SID_END_DEVICE_NUS_ADV_INTERVAL_MS
 	int "NUS advertising interval in ms"
 	range 40 2000
 	default 200
-	help
-	  Keep this moderate so the extra advertiser remains discoverable
-	  without aggressively competing with Sidewalk BLE timing.
 
 config SID_END_DEVICE_NUS_CONN_INTERVAL_MIN_MS
 	int "Preferred minimum NUS connection interval in ms"

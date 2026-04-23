@@ -194,6 +194,44 @@
 
 #define CMD_SID_SDK_CONFIG_DESCRIPTION "Print sid sdk config"
 
+#define CMD_SID_FLOW_DESCRIPTION                                                                  \
+	"<set|switch|send|status|cancel|connect>\n"                                             \
+	"Hello-sample style flow helpers for the DUT shell.\n"                                  \
+	"`set` uses the same BLE -> FSK -> BLE+LoRa states as the hello sample.\n"              \
+	"For faster LoRa bring-up, the DUT keeps one Sidewalk session alive and reuses cached\n" \
+	"time when possible.\n"                                                                  \
+	"`send` queues a message, brings up the requested transport, and sends when ready.\n"    \
+	"`switch` simulates one press of the hello link-switch button.\n"                        \
+	"`connect` issues the same BLE connection request as hello button 2."
+
+#define CMD_SID_FLOW_SET_DESCRIPTION                                                              \
+	"<ble|fsk|lora>\n"                                                                        \
+	"Reach the selected hello-flow state. `lora` maps to the hello sample's BLE+LoRa state.\n" \
+	"If Sidewalk time is not cached yet, `lora` first bootstraps through FSK automatically."
+
+#define CMD_SID_FLOW_SWITCH_DESCRIPTION                                                           \
+	"\n"                                                                                      \
+	"Advance one hello-flow step: BLE -> FSK -> BLE+LoRa -> BLE.\n"                         \
+	"If Sidewalk is not running yet, the first switch starts with FSK."
+
+#define CMD_SID_FLOW_SEND_DESCRIPTION                                                             \
+	"<ble|fsk|lora> [sid send options] <payload>\n"                                          \
+	"Queue a send for the selected transport. Uses the same payload/options as `sid send`,\n" \
+	"but brings the selected hello-flow state up first and keeps retrying until ready.\n"     \
+	"Use plain text payloads directly, or use `-r` only with a hex payload."
+
+#define CMD_SID_FLOW_STATUS_DESCRIPTION                                                           \
+	"\n"                                                                                      \
+	"Print the active hello-flow target, retry counters, pending-send state, and link status."
+
+#define CMD_SID_FLOW_CANCEL_DESCRIPTION                                                           \
+	"\n"                                                                                      \
+	"Cancel any pending hello-flow target wait and queued flow send."
+
+#define CMD_SID_FLOW_CONNECT_DESCRIPTION                                                          \
+	"\n"                                                                                      \
+	"Request BLE connection using the same hello-sample connect event."
+
 #define CMD_NORDIC_DFU_ARG_REQUIRED 1
 #define CMD_NORDIC_DFU_ARG_OPTIONAL 0
 
@@ -245,6 +283,20 @@
 #define CMD_SID_SDK_VERSION_DESCRIPTION_ARG_OPTIONAL 0
 #define CMD_SID_SDK_CONFIG_DESCRIPTION_ARG_REQUIRED 1
 #define CMD_SID_SDK_CONFIG_DESCRIPTION_ARG_OPTIONAL 0
+#define CMD_SID_FLOW_ARG_REQUIRED 2
+#define CMD_SID_FLOW_ARG_OPTIONAL 0
+#define CMD_SID_FLOW_SET_ARG_REQUIRED 2
+#define CMD_SID_FLOW_SET_ARG_OPTIONAL 0
+#define CMD_SID_FLOW_SWITCH_ARG_REQUIRED 1
+#define CMD_SID_FLOW_SWITCH_ARG_OPTIONAL 0
+#define CMD_SID_FLOW_SEND_ARG_REQUIRED 3
+#define CMD_SID_FLOW_SEND_ARG_OPTIONAL 13
+#define CMD_SID_FLOW_STATUS_ARG_REQUIRED 1
+#define CMD_SID_FLOW_STATUS_ARG_OPTIONAL 0
+#define CMD_SID_FLOW_CANCEL_ARG_REQUIRED 1
+#define CMD_SID_FLOW_CANCEL_ARG_OPTIONAL 0
+#define CMD_SID_FLOW_CONNECT_ARG_REQUIRED 1
+#define CMD_SID_FLOW_CONNECT_ARG_OPTIONAL 0
 
 int cmd_nordic_dfu(const struct shell *shell, int32_t argc, const char **argv);
 
@@ -280,6 +332,12 @@ int cmd_sid_set_send_link(const struct shell *shell, int32_t argc, const char **
 int cmd_sid_set_rsp_id(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_sdk_version(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_sdk_config(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_flow_set(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_flow_switch(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_flow_send(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_flow_status(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_flow_cancel(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_flow_connect(const struct shell *shell, int32_t argc, const char **argv);
 
 #ifdef CONFIG_SIDEWALK_TRACE_HEAP
 int cmd_sid_print_heap_stats(const struct shell *shell, int32_t argc, const char **argv);

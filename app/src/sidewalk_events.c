@@ -5,6 +5,7 @@
  */
 
 #include "json_printer/sidTypes2str.h"
+#include <cli/app_dut.h>
 #include <sidewalk.h>
 #include <sid_error.h>
 #include <app_mfg_config.h>
@@ -199,6 +200,7 @@ void sidewalk_event_new_status(sidewalk_ctx_t *sid, void *ctx)
 	}
 
 	memcpy(&sid->last_status, p_status, sizeof(struct sid_status));
+	dut_event_flow_on_status(sid);
 }
 void sidewalk_event_send_msg(sidewalk_ctx_t *sid, void *ctx)
 {

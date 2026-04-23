@@ -10,7 +10,6 @@
 #include <string.h>
 
 #include <bluetooth/services/nus.h>
-#include <buttons.h>
 #include <dk_buttons_and_leds.h>
 #include <shell/shell_bt_nus.h>
 
@@ -23,6 +22,7 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/input/input.h>
 #include <zephyr/kernel.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/sys/poweroff.h>
@@ -37,6 +37,8 @@ LOG_MODULE_REGISTER(app_cli_ui, CONFIG_SIDEWALK_LOG_LEVEL);
 
 #define MS_TO_CONN_INTERVAL(ms) ((uint16_t)(((ms) * 4) / 5))
 #define MS_TO_ADV_INTERVAL(ms) ((uint16_t)(((ms) * 8) / 5))
+
+#define APP_CLI_UI_LONGPRESS_NODE DT_NODELABEL(app_cli_ui_longpress)
 
 #if DT_NODE_EXISTS(DT_PATH(buttons))
 #define APP_CLI_UI_BUTTON_COUNT DT_CHILD_NUM(DT_PATH(buttons))
@@ -55,6 +57,13 @@ static const struct gpio_dt_spec sw0 = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 #define APP_CLI_UI_HAS_LED 1
 #else
 #define APP_CLI_UI_HAS_LED 0
+#endif
+
+#if DT_NODE_HAS_STATUS(APP_CLI_UI_LONGPRESS_NODE, okay)
+#define APP_CLI_UI_HAS_LONGPRESS_INPUT 1
+static const struct device *const longpress_dev = DEVICE_DT_GET(APP_CLI_UI_LONGPRESS_NODE);
+#else
+#define APP_CLI_UI_HAS_LONGPRESS_INPUT 0
 #endif
 
 #if DT_HAS_ALIAS(lora_transceiver) && DT_NODE_HAS_STATUS(DT_ALIAS(lora_transceiver), okay) && \
@@ -89,9 +98,10 @@ static void led_pattern_work_handler(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(led_pattern_work, led_pattern_work_handler);
 #endif
 
-#if APP_CLI_UI_HAS_SINGLE_BUTTON
+#if APP_CLI_UI_HAS_LONGPRESS_INPUT
+static atomic_t system_off_requested = ATOMIC_INIT(false);
 static void system_off_work_handler(struct k_work *work);
-static K_WORK_DEFINE(system_off_work, system_off_work_handler);
+static K_WORK_DELAYABLE_DEFINE(system_off_work, system_off_work_handler);
 #endif
 
 #if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
@@ -173,6 +183,12 @@ static void led_pattern_work_handler(struct k_work *work)
 	led_pattern.led_on = true;
 	(void)k_work_schedule(&led_pattern_work, K_MSEC(led_pattern.on_ms));
 }
+
+static void led_prepare_for_poweroff(void)
+{
+	(void)k_work_cancel_delayable(&led_pattern_work);
+	led_apply(false);
+}
 #endif
 
 static void sidewalk_prepare_for_poweroff(sidewalk_ctx_t *sid, void *ctx)
@@ -214,11 +230,49 @@ static void prepare_button_wakeup(void)
 {
 #if APP_CLI_UI_HAS_SINGLE_BUTTON
 	if (!device_is_ready(sw0.port)) {
+<<<<<<< HEAD
 		return;
 	}
 
 	(void)gpio_pin_configure_dt(&sw0, GPIO_INPUT);
 	(void)gpio_pin_interrupt_configure_dt(&sw0, GPIO_INT_LEVEL_ACTIVE);
+=======
+		LOG_ERR("Wake button GPIO device is not ready");
+		return;
+	}
+
+	int err = gpio_pin_configure_dt(&sw0, GPIO_INPUT);
+
+	if (err) {
+		LOG_ERR("Failed to configure wake button input (%d)", err);
+		return;
+	}
+
+	err = gpio_pin_interrupt_configure_dt(&sw0, GPIO_INT_LEVEL_ACTIVE);
+	if (err) {
+		LOG_ERR("Failed to arm wake button interrupt (%d)", err);
+		return;
+	}
+
+	LOG_INF("Wake button armed on %s pin %u flags 0x%x", sw0.port->name, sw0.pin,
+		sw0.dt_flags);
+#endif
+}
+
+static void wait_for_wake_button_release(void)
+{
+#if APP_CLI_UI_HAS_SINGLE_BUTTON
+	for (uint8_t i = 0; i < 100U; i++) {
+		int state = gpio_pin_get_dt(&sw0);
+
+		if (state <= 0) {
+			return;
+		}
+
+		k_sleep(K_MSEC(20));
+	}
+
+	LOG_WRN("Wake button still active before system off");
 #endif
 }
 
@@ -244,18 +298,23 @@ static void enter_system_off(void)
 	}
 
 	prepare_radio_for_poweroff();
+	wait_for_wake_button_release();
 	prepare_button_wakeup();
+#if APP_CLI_UI_HAS_LED
+	led_prepare_for_poweroff();
+#endif
 	suspend_console_for_poweroff();
 	sys_poweroff();
 }
 
-#if APP_CLI_UI_HAS_SINGLE_BUTTON
+#if APP_CLI_UI_HAS_LONGPRESS_INPUT
 static void system_off_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
 	enter_system_off();
 }
 
+<<<<<<< HEAD
 static void system_off_request(uint32_t unused)
 {
 	ARG_UNUSED(unused);
@@ -265,6 +324,33 @@ static void system_off_request(uint32_t unused)
 #endif
 	k_work_submit(&system_off_work);
 }
+=======
+static void request_system_off(void)
+{
+	if (!atomic_cas(&system_off_requested, false, true)) {
+		return;
+	}
+
+	LOG_INF("Long press detected, blinking before system off");
+#if APP_CLI_UI_HAS_LED
+	led_pattern_start(APP_CLI_UI_SYSTEM_OFF_BLINK_PULSES, APP_CLI_UI_SYSTEM_OFF_BLINK_ON_MS,
+			  APP_CLI_UI_SYSTEM_OFF_BLINK_OFF_MS);
+#endif
+	(void)k_work_schedule(&system_off_work, K_MSEC(APP_CLI_UI_SYSTEM_OFF_DELAY_MS));
+}
+
+static void system_off_input_callback(struct input_event *evt, void *user_data)
+{
+	ARG_UNUSED(user_data);
+
+	if (evt->type != INPUT_EV_KEY || evt->code != INPUT_KEY_POWER || evt->value == 0) {
+		return;
+	}
+
+	request_system_off();
+}
+
+INPUT_CALLBACK_DEFINE(longpress_dev, system_off_input_callback, NULL);
 #endif
 
 #if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
@@ -401,9 +487,15 @@ int app_cli_ui_init(sidewalk_ctx_t *sid)
 #endif
 
 #if APP_CLI_UI_HAS_SINGLE_BUTTON
-	(void)button_set_action_long_press(DK_BTN1, system_off_request, 0);
-	if (buttons_init() != 0) {
-		LOG_WRN("Failed to initialize button handling");
+	LOG_INF("Button input on %s pin %u flags 0x%x", sw0.port->name, sw0.pin, sw0.dt_flags);
+#endif
+
+#if APP_CLI_UI_HAS_LONGPRESS_INPUT
+	atomic_set(&system_off_requested, false);
+	if (!device_is_ready(longpress_dev)) {
+		LOG_WRN("Long-press input device is not ready");
+	} else {
+		LOG_INF("Long-press system-off input ready");
 	}
 #endif
 

@@ -8,6 +8,7 @@
 #include <sidewalk.h>
 #include <app_ble_config.h>
 #include <cli/app_cli_ui.h>
+#include <cli/app_dut.h>
 #include <app_subGHz_config.h>
 #include <sid_hal_reset_ifc.h>
 #include <sid_hal_memory_ifc.h>
@@ -45,6 +46,7 @@ static void on_sidewalk_msg_sent(const struct sid_msg_desc *msg_desc, void *cont
 	app_cli_ui_notify_activity(APP_CLI_UI_ACTIVITY_TX);
 	printk(JSON_NEW_LINE(JSON_OBJ(JSON_NAME(
 		"on_msg_sent", JSON_OBJ(JSON_VAL_sid_msg_desc("sid_msg_desc", msg_desc, 0))))));
+	dut_flow_notify_msg_sent(msg_desc);
 }
 
 static void on_sidewalk_send_error(sid_error_t error, const struct sid_msg_desc *msg_desc,
@@ -56,6 +58,7 @@ static void on_sidewalk_send_error(sid_error_t error, const struct sid_msg_desc 
 		"on_send_error",
 		JSON_OBJ(JSON_LIST_2(JSON_VAL_sid_error_t("error", error),
 				     JSON_VAL_sid_msg_desc("sid_msg_desc", msg_desc, 0)))))));
+	dut_flow_notify_send_error(error, msg_desc);
 }
 
 static void on_sidewalk_factory_reset(void *context)
