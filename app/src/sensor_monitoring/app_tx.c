@@ -12,17 +12,26 @@
 #include <sid_demo_parser.h>
 #include <sid_pal_uptime_ifc.h>
 #include <sid_hal_memory_ifc.h>
+#include <errno.h>
+#include <stddef.h>
+#include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/smf.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/printk.h>
 #include <json_printer/sidTypes2str.h>
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG) && IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+#include <SEGGER_RTT.h>
+#endif
 
 LOG_MODULE_REGISTER(app_tx, CONFIG_SIDEWALK_LOG_LEVEL);
 
 #define MSG_PAYLOAD_SIZE_MAX (32)
+#define TELEMETRY_PAYLOAD_SIZE_MAX (192)
 #define DEMO_MSG_PAYLOAD_MAX_SIXE (255)
 #define APP_SID_MSG_TTL_MAX (60)
 #define APP_SID_MSG_RETRIES_MAX (3)
+#define APP_TELEMETRY_MSG_RETRIES_MAX (1)
 #define APP_NOTIFY_BUTTON_PERIOD_MS (1000)
 #define APP_DUMMY_SENSOR_DATA (20)
 
@@ -44,8 +53,6 @@ enum state {
 static void state_init(void *o);
 static void state_notify_capability(void *o);
 static void state_notify_data(void *o);
-static void button_timer_cb(struct k_timer *timer_id);
-
 static const struct smf_state app_states[] = {
 	[STATE_APP_INIT] = SMF_CREATE_STATE(NULL, state_init, NULL, NULL, NULL),
 	[STATE_APP_NOTIFY_CAPABILITY] =
@@ -56,6 +63,8 @@ static const struct smf_state app_states[] = {
 static uint8_t __aligned(4)
 	app_msgq_buff[CONFIG_SID_END_DEVICE_TX_THREAD_QUEUE_SIZE * sizeof(app_event_t)];
 
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
+static void button_timer_cb(struct k_timer *timer_id);
 K_TIMER_DEFINE(button_timer, button_timer_cb, NULL);
 
 static void button_timer_cb(struct k_timer *timer_id)
@@ -65,6 +74,7 @@ static void button_timer_cb(struct k_timer *timer_id)
 		app_tx_event_send(APP_EVENT_NOTIFY_BUTTON);
 	}
 }
+#endif
 
 static uint32_t time_in_sec_get(void)
 {
@@ -82,6 +92,13 @@ static uint32_t last_link_mask_get(void)
 	return last_link_mask;
 }
 
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
+static void app_tx_sensor_wake_handler(void)
+{
+	(void)app_tx_event_send(APP_EVENT_NOTIFY_SENSOR);
+}
+#endif
+
 static void free_sid_msg_event_ctx(void *ctx)
 {
 	sidewalk_msg_t *sid_msg = (sidewalk_msg_t *)ctx;
@@ -92,6 +109,39 @@ static void free_sid_msg_event_ctx(void *ctx)
 		sid_hal_free(sid_msg->msg.data);
 	}
 	sid_hal_free(sid_msg);
+}
+
+static int app_tx_payload_msg_send(const uint8_t *payload, size_t payload_size,
+				   struct sid_msg_desc *sid_desc)
+{
+	sidewalk_msg_t *sid_msg = sid_hal_malloc(sizeof(sidewalk_msg_t));
+
+	if (!sid_msg) {
+		LOG_ERR("Failed to alloc memory for payload context");
+		return -ENOMEM;
+	}
+
+	memset(sid_msg, 0x0, sizeof(*sid_msg));
+	sid_msg->msg.size = payload_size;
+	sid_msg->msg.data = sid_hal_malloc(payload_size);
+	if (!sid_msg->msg.data) {
+		sid_hal_free(sid_msg);
+		LOG_ERR("Failed to allocate memory for payload data");
+		return -ENOMEM;
+	}
+
+	memcpy(sid_msg->msg.data, payload, payload_size);
+	memcpy(&sid_msg->desc, sid_desc, sizeof(struct sid_msg_desc));
+
+	int err = sidewalk_event_send(sidewalk_event_send_msg, sid_msg, free_sid_msg_event_ctx);
+
+	if (err) {
+		free_sid_msg_event_ctx(sid_msg);
+		LOG_ERR("Payload event send err %d", err);
+		return -EIO;
+	}
+
+	return 0;
 }
 
 static int app_tx_demo_msg_send(struct sid_parse_state *state, uint8_t *buffer,
@@ -135,6 +185,163 @@ static int app_tx_demo_msg_send(struct sid_parse_state *state, uint8_t *buffer,
 	return 0;
 }
 
+static const char *json_int_or_null(bool valid, int32_t value, char *buffer, size_t buffer_size)
+{
+	if (!valid) {
+		return "null";
+	}
+
+	(void)snprintk(buffer, buffer_size, "%d", value);
+	return buffer;
+}
+
+static const char *json_bool_or_null(bool valid, bool value)
+{
+	if (!valid) {
+		return "null";
+	}
+
+	return value ? "true" : "false";
+}
+
+static int app_tx_telemetry_payload_format(const struct app_sensor_sample *sample, uint8_t *payload,
+					   size_t payload_size)
+{
+	char t_buf[12];
+	char rh_buf[12];
+	char ax_buf[12];
+	char ay_buf[12];
+	char az_buf[12];
+	char bat_mv_buf[12];
+	char ibat_ua_buf[12];
+	char bat_pct_buf[8];
+	char chg_buf[8];
+	char err_buf[8];
+
+	int len = snprintk(
+		(char *)payload, payload_size,
+		"{\"t_mc\":%s,\"rh_mpc\":%s,\"ax_mms2\":%s,\"ay_mms2\":%s,"
+		"\"az_mms2\":%s,\"bat_mv\":%s,\"ibat_ua\":%s,\"bat_pct\":%s,"
+		"\"vbus\":%s,\"chg\":%s,\"err\":%s,\"wake\":%s}",
+		json_int_or_null(sample->temperature_valid, sample->temperature_millicelsius,
+				 t_buf, sizeof(t_buf)),
+		json_int_or_null(sample->humidity_valid, (int32_t)sample->humidity_millipercent,
+				 rh_buf, sizeof(rh_buf)),
+		json_int_or_null(sample->accel_valid, sample->accel_milli_ms2[0], ax_buf,
+				 sizeof(ax_buf)),
+		json_int_or_null(sample->accel_valid, sample->accel_milli_ms2[1], ay_buf,
+				 sizeof(ay_buf)),
+		json_int_or_null(sample->accel_valid, sample->accel_milli_ms2[2], az_buf,
+				 sizeof(az_buf)),
+		json_int_or_null(sample->pmic_valid, sample->battery_millivolts, bat_mv_buf,
+				 sizeof(bat_mv_buf)),
+		json_int_or_null(sample->pmic_valid, sample->battery_current_microamps,
+				 ibat_ua_buf, sizeof(ibat_ua_buf)),
+		json_int_or_null(sample->pmic_valid, sample->battery_level_percent, bat_pct_buf,
+				 sizeof(bat_pct_buf)),
+		json_bool_or_null(sample->pmic_valid, sample->vbus_present),
+		json_int_or_null(sample->pmic_valid, sample->charger_status, chg_buf,
+				 sizeof(chg_buf)),
+		json_int_or_null(sample->pmic_valid, sample->charger_error, err_buf,
+				 sizeof(err_buf)),
+		sample->accel_wake ? "true" : "false");
+
+	if (len < 0 || len >= (int)payload_size) {
+		return -EMSGSIZE;
+	}
+
+	return len;
+}
+
+static int app_tx_telemetry_send(const struct app_sensor_sample *sample)
+{
+	uint8_t payload[TELEMETRY_PAYLOAD_SIZE_MAX] = { 0 };
+	int payload_size = app_tx_telemetry_payload_format(sample, payload, sizeof(payload));
+
+	if (payload_size < 0) {
+		LOG_ERR("Telemetry payload format failed %d", payload_size);
+		return payload_size;
+	}
+
+	struct sid_msg_desc telemetry_sid_desc = {
+		.link_type = SID_LINK_TYPE_ANY,
+		.type = SID_MSG_TYPE_NOTIFY,
+		.link_mode = SID_LINK_MODE_CLOUD,
+		.msg_desc_attr.tx_attr.ttl_in_seconds = APP_SID_MSG_TTL_MAX,
+		.msg_desc_attr.tx_attr.num_retries = APP_TELEMETRY_MSG_RETRIES_MAX,
+		.msg_desc_attr.tx_attr.request_ack = false,
+	};
+
+	return app_tx_payload_msg_send(payload, (size_t)payload_size, &telemetry_sid_desc);
+}
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG)
+#if IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+static void app_tx_rtt_write(const char *line)
+{
+	(void)SEGGER_RTT_WriteString(0, line);
+}
+#endif
+
+static void app_tx_sensor_sample_log(const char *tag, const struct app_sensor_sample *sample)
+{
+	LOG_INF("%s sample: valid={t:%d rh:%d accel:%d pmic:%d} t_mc=%d rh_mpc=%u "
+		"accel_mms2=[%d,%d,%d] bat_mv=%d ibat_ua=%d bat_pct=%d vbus=%d "
+		"chg=%d err=%d wake=%d link_mask=0x%08x",
+		tag, sample->temperature_valid, sample->humidity_valid, sample->accel_valid,
+		sample->pmic_valid, sample->temperature_millicelsius, sample->humidity_millipercent,
+		sample->accel_milli_ms2[0], sample->accel_milli_ms2[1],
+		sample->accel_milli_ms2[2], sample->battery_millivolts,
+		sample->battery_current_microamps, sample->battery_level_percent,
+		sample->vbus_present, sample->charger_status, sample->charger_error,
+		sample->accel_wake, last_link_mask_get());
+
+#if IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+	char line[256];
+
+	(void)snprintk(line, sizeof(line),
+		       "app_tx %s sample: valid={t:%d rh:%d accel:%d pmic:%d} t_mc=%d "
+		       "rh_mpc=%u accel_mms2=[%d,%d,%d] bat_mv=%d ibat_ua=%d "
+		       "bat_pct=%d vbus=%d chg=%d err=%d wake=%d link_mask=0x%08x\n",
+		       tag, sample->temperature_valid, sample->humidity_valid,
+		       sample->accel_valid, sample->pmic_valid, sample->temperature_millicelsius,
+		       sample->humidity_millipercent, sample->accel_milli_ms2[0],
+		       sample->accel_milli_ms2[1], sample->accel_milli_ms2[2],
+		       sample->battery_millivolts, sample->battery_current_microamps,
+		       sample->battery_level_percent, sample->vbus_present, sample->charger_status,
+		       sample->charger_error, sample->accel_wake, last_link_mask_get());
+	app_tx_rtt_write(line);
+#endif
+}
+
+static void app_tx_sensor_sample_get_and_log(const char *tag)
+{
+	struct app_sensor_sample sample;
+
+#if IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+	char begin_line[64];
+
+	(void)snprintk(begin_line, sizeof(begin_line), "app_tx %s sample begin\n", tag);
+	app_tx_rtt_write(begin_line);
+#endif
+
+	int err = app_sensor_sample_get(&sample);
+
+	if (err) {
+		LOG_WRN("%s sample failed %d", tag, err);
+#if IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+		char line[64];
+
+		(void)snprintk(line, sizeof(line), "app_tx %s sample failed %d\n", tag, err);
+		app_tx_rtt_write(line);
+#endif
+		return;
+	}
+
+	app_tx_sensor_sample_log(tag, &sample);
+}
+#endif
+
 static int app_tx_response_send(struct sid_demo_action_resp *resp)
 {
 	// Prepare message
@@ -146,7 +353,7 @@ static int app_tx_response_send(struct sid_demo_action_resp *resp)
 		.status_code = SID_ERROR_NONE,
 	};
 
-	struct sid_msg_desc resp_sid_desc = { .link_type = last_link_mask_get(),
+	struct sid_msg_desc resp_sid_desc = { .link_type = SID_LINK_TYPE_ANY,
 					      .type = SID_MSG_TYPE_NOTIFY,
 					      .link_mode = SID_LINK_MODE_CLOUD,
 					      .msg_desc_attr = {
@@ -178,10 +385,14 @@ static void state_init(void *o)
 	case APP_EVENT_TIME_SYNC_SUCCESS:
 		smf_set_state(SMF_CTX(sm), &app_states[STATE_APP_NOTIFY_CAPABILITY]);
 		break;
+	case APP_EVENT_NOTIFY_SENSOR:
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG)
+		app_tx_sensor_sample_get_and_log("init");
+#endif
+		break;
 	case APP_EVENT_CAPABILITY_SUCCESS:
 	case APP_EVENT_TIME_SYNC_FAIL:
 	case APP_EVENT_NOTIFY_BUTTON:
-	case APP_EVENT_NOTIFY_SENSOR:
 	case APP_EVENT_RESP_LED_ON:
 	case APP_EVENT_RESP_LED_OFF:
 		break;
@@ -194,6 +405,10 @@ static void state_notify_capability(void *o)
 
 	switch (sm->event) {
 	case APP_EVENT_NOTIFY_SENSOR: {
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG)
+		app_tx_sensor_sample_get_and_log("capability");
+#endif
+
 		// Prepare message
 		struct sid_demo_capability_discovery cap = {
 			.link_type = last_link_mask_get(),
@@ -212,7 +427,7 @@ static void state_notify_capability(void *o)
 		};
 
 		struct sid_msg_desc cap_sid_desc = {
-			.link_type = last_link_mask_get(),
+			.link_type = SID_LINK_TYPE_ANY,
 			.type = SID_MSG_TYPE_NOTIFY,
 			.link_mode = SID_LINK_MODE_CLOUD,
 		};
@@ -288,7 +503,7 @@ static void state_notify_data(void *o)
 		};
 
 		struct sid_msg_desc notify_btn_sid_desc = {
-			.link_type = last_link_mask_get(),
+			.link_type = SID_LINK_TYPE_ANY,
 			.type = SID_MSG_TYPE_NOTIFY,
 			.link_mode = SID_LINK_MODE_CLOUD,
 			.msg_desc_attr.tx_attr.ttl_in_seconds = APP_SID_MSG_TTL_MAX,
@@ -316,11 +531,29 @@ static void state_notify_data(void *o)
 	} break;
 	case APP_EVENT_NOTIFY_SENSOR: {
 		// Read sensor data
+		struct app_sensor_sample sensor_sample;
 		int16_t temp = 0;
-		err = app_sensor_temperature_get(&temp);
-		if (err) {
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG) && IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+		app_tx_rtt_write("app_tx notify sample begin\n");
+#endif
+
+		err = app_sensor_sample_get(&sensor_sample);
+		if (!err && sensor_sample.temperature_valid) {
+			temp = (int16_t)(sensor_sample.temperature_millicelsius / 1000);
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG)
+			app_tx_sensor_sample_log("notify", &sensor_sample);
+#endif
+		} else {
 			LOG_INF("Temperature get err %d, use dummy value: %d", err,
 				APP_DUMMY_SENSOR_DATA);
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG) && IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+			char fail_line[64];
+
+			(void)snprintk(fail_line, sizeof(fail_line),
+				       "app_tx notify sample failed %d\n", err);
+			app_tx_rtt_write(fail_line);
+#endif
 			temp = APP_DUMMY_SENSOR_DATA;
 		}
 
@@ -341,7 +574,7 @@ static void state_notify_data(void *o)
 		};
 
 		struct sid_msg_desc notify_sid_desc = {
-			.link_type = last_link_mask_get(),
+			.link_type = SID_LINK_TYPE_ANY,
 			.type = SID_MSG_TYPE_NOTIFY,
 			.link_mode = SID_LINK_MODE_CLOUD,
 		};
@@ -358,6 +591,13 @@ static void state_notify_data(void *o)
 		if (err) {
 			LOG_ERR("Notify sensor send failed %d", err);
 		}
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_TELEMETRY_PAYLOAD)
+		err = app_tx_telemetry_send(&sensor_sample);
+		if (err) {
+			LOG_ERR("Telemetry send failed %d", err);
+		}
+#endif
 
 		LOG_INF("Notify sensor send");
 	} break;
@@ -442,12 +682,39 @@ void app_tx_task(void *dummy1, void *dummy2, void *dummy3)
 	ARG_UNUSED(dummy2);
 	ARG_UNUSED(dummy3);
 
-	k_timer_start(&button_timer, K_MSEC(APP_NOTIFY_BUTTON_PERIOD_MS),
-		      K_MSEC(APP_NOTIFY_BUTTON_PERIOD_MS));
-
 	k_msgq_init(&app_sm.msgq, (char *)app_msgq_buff, sizeof(app_event_t),
 		    CONFIG_SID_END_DEVICE_TX_THREAD_QUEUE_SIZE);
 	smf_set_initial(SMF_CTX(&app_sm), &app_states[STATE_APP_INIT]);
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
+	app_sensor_wake_handler_t sensor_wake_handler = app_tx_sensor_wake_handler;
+#else
+	app_sensor_wake_handler_t sensor_wake_handler = NULL;
+#endif
+	int err = app_sensor_init(sensor_wake_handler);
+
+	if (err) {
+		LOG_WRN("Sensor init failed %d", err);
+	} else {
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
+		LOG_INF("Sensor TX task started; local sample log period %d ms",
+			CONFIG_SID_END_DEVICE_NOTIFY_DATA_PERIOD_MS);
+#else
+		LOG_INF("Sensor TX task started; automatic packet sends disabled");
+#endif
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG) && IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
+		app_tx_rtt_write("app_tx started; sensor reads scheduled\n");
+#else
+		app_tx_rtt_write("app_tx started; automatic packet sends disabled\n");
+#endif
+#endif
+	}
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
+	k_timer_start(&button_timer, K_MSEC(APP_NOTIFY_BUTTON_PERIOD_MS),
+		      K_MSEC(APP_NOTIFY_BUTTON_PERIOD_MS));
+#endif
 
 	while (1) {
 		int err = k_msgq_get(&app_sm.msgq, &app_sm.event, K_FOREVER);

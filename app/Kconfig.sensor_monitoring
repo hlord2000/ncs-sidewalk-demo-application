@@ -8,6 +8,10 @@ config SID_END_DEVICE_NOTIFY_DATA_PERIOD_MS
     int "Notify period of sensor monitoring demo app"
     default 10000
 
+config SID_END_DEVICE_SENSOR_TELEMETRY_PAYLOAD
+    bool "Send compact Sidewalk sensor telemetry payload"
+    default y
+
 config SID_END_DEVICE_FUEL_GAUGE
     bool "Use nRF fuel gauge for battery level estimation"
     default y
@@ -15,6 +19,34 @@ config SID_END_DEVICE_FUEL_GAUGE
       Estimate battery percentage from PMIC voltage/current/temperature measurements with the
       nRF Fuel Gauge library.
     select NRF_FUEL_GAUGE
+
+config SID_END_DEVICE_SENSOR_SAMPLE_LOG
+    bool "Log local sensor samples"
+    default y
+
+config SID_END_DEVICE_SENSOR_AUTO_TX
+    bool "Automatically send sensor sample packets"
+    default y
+    help
+      Enable the original sensor-monitoring sample behavior that sends capability,
+      sensor, telemetry, and button packets from timers or sensor wake events.
+
+config SID_END_DEVICE_SENSOR_LINK_AUTOSWITCH
+    bool "Automatically try BLE, FSK, and LoRa links"
+
+if SID_END_DEVICE_SENSOR_LINK_AUTOSWITCH
+
+config SID_END_DEVICE_SENSOR_AUTOSWITCH_FSK_DELAY_S
+    int "Delay before switching from BLE to FSK"
+    range 1 300
+    default 20
+
+config SID_END_DEVICE_SENSOR_AUTOSWITCH_LORA_DELAY_S
+    int "Delay before switching from FSK to BLE plus LoRa"
+    range 1 600
+    default 60
+
+endif # SID_END_DEVICE_SENSOR_LINK_AUTOSWITCH
 
 config SID_END_DEVICE_SENSOR_NFC_ID
     bool "Expose device identity over NFC"

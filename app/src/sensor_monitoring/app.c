@@ -5,6 +5,12 @@
  */
 
 #include <sidewalk.h>
+#if defined(CONFIG_SID_END_DEVICE_CLI) || defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+#include <cli/app_cli_ui.h>
+#endif
+#if defined(CONFIG_SID_END_DEVICE_CLI)
+#include <cli/app_dut.h>
+#endif
 #include <sensor_monitoring/app_tx.h>
 #include <sensor_monitoring/app_rx.h>
 #include <sensor_monitoring/app_buttons.h>
@@ -23,6 +29,9 @@
 #include <zephyr/logging/log.h>
 #include <sid_demo_parser.h>
 #include <json_printer/sidTypes2str.h>
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG) && IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+#include <SEGGER_RTT.h>
+#endif
 #ifdef CONFIG_SIDEWALK_FILE_TRANSFER_DFU
 #include <sbdt/dfu_file_transfer.h>
 #endif
@@ -31,8 +40,27 @@
 
 LOG_MODULE_REGISTER(app, CONFIG_SIDEWALK_LOG_LEVEL);
 
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_SAMPLE_LOG) && IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+static void app_rtt_trace(const char *line)
+{
+	static bool initialized;
+
+	if (!initialized) {
+		SEGGER_RTT_Init();
+		initialized = true;
+	}
+
+	(void)SEGGER_RTT_WriteString(0, line);
+}
+#else
+static void app_rtt_trace(const char *line)
+{
+	ARG_UNUSED(line);
+}
+#endif
+
 #define PARAM_UNUSED (0U)
-#define NOTIFY_TIMER_DURATION_MS (500)
+#define NOTIFY_TIMER_INITIAL_DELAY_MS (5000)
 
 K_THREAD_STACK_DEFINE(app_tx_stack, CONFIG_SID_END_DEVICE_TX_THREAD_STACK_SIZE);
 K_THREAD_STACK_DEFINE(app_rx_stack, CONFIG_SID_END_DEVICE_RX_THREAD_STACK_SIZE);
@@ -40,6 +68,7 @@ K_THREAD_STACK_DEFINE(app_rx_stack, CONFIG_SID_END_DEVICE_RX_THREAD_STACK_SIZE);
 static struct k_thread app_main;
 static struct k_thread app_rx;
 
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
 static void notify_timer_cb(struct k_timer *timer_id);
 K_TIMER_DEFINE(notify_timer, notify_timer_cb, NULL);
 
@@ -48,6 +77,47 @@ static void notify_timer_cb(struct k_timer *timer_id)
 	ARG_UNUSED(timer_id);
 	app_tx_event_send(APP_EVENT_NOTIFY_SENSOR);
 }
+#endif
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_LINK_AUTOSWITCH)
+static void sensor_auto_switch_to_fsk(struct k_work *work);
+static void sensor_auto_switch_to_lora(struct k_work *work);
+
+static K_WORK_DELAYABLE_DEFINE(sensor_switch_to_fsk_work, sensor_auto_switch_to_fsk);
+static K_WORK_DELAYABLE_DEFINE(sensor_switch_to_lora_work, sensor_auto_switch_to_lora);
+
+static void sensor_auto_switch_to_fsk(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+#if defined(CONFIG_SID_END_DEVICE_CLI)
+	if (dut_flow_mode_is_enabled()) {
+		LOG_INF("Sensor auto-switch to FSK skipped while hello-flow owns Sidewalk");
+		return;
+	}
+#endif
+
+	LOG_INF("Sensor auto-switch to FSK");
+	app_rtt_trace("app sensor auto-switch to FSK\n");
+	(void)sidewalk_event_send(sidewalk_event_link_switch, NULL, NULL);
+}
+
+static void sensor_auto_switch_to_lora(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+#if defined(CONFIG_SID_END_DEVICE_CLI)
+	if (dut_flow_mode_is_enabled()) {
+		LOG_INF("Sensor auto-switch to BLE+LoRa skipped while hello-flow owns Sidewalk");
+		return;
+	}
+#endif
+
+	LOG_INF("Sensor auto-switch to BLE+LoRa");
+	app_rtt_trace("app sensor auto-switch to BLE+LoRa\n");
+	(void)sidewalk_event_send(sidewalk_event_link_switch, NULL, NULL);
+}
+#endif
 
 static sidewalk_ctx_t sid_ctx;
 
@@ -66,6 +136,10 @@ static void on_sidewalk_msg_received(const struct sid_msg_desc *msg_desc, const 
 		(int)msg_desc->link_mode, msg_desc->id, msg->size);
 	LOG_HEXDUMP_INF((uint8_t *)msg->data, msg->size, "Received message: ");
 
+#if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+	app_cli_ui_report_event("rx", (int)msg->size);
+#endif
+
 	if (msg_desc->type == SID_MSG_TYPE_RESPONSE && msg_desc->msg_desc_attr.rx_attr.is_msg_ack) {
 		LOG_DBG("Received Ack for msg id %d", msg_desc->id);
 	} else {
@@ -81,7 +155,14 @@ static void on_sidewalk_msg_received(const struct sid_msg_desc *msg_desc, const 
 
 static void on_sidewalk_msg_sent(const struct sid_msg_desc *msg_desc, void *context)
 {
+	LOG_INF("Message send success");
 	LOG_DBG("sent message(type: %d, id: %u)", (int)msg_desc->type, msg_desc->id);
+#if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+	app_cli_ui_report_event("tx", (int)msg_desc->id);
+#endif
+#if defined(CONFIG_SID_END_DEVICE_CLI)
+	dut_flow_notify_msg_sent(msg_desc);
+#endif
 }
 
 static void on_sidewalk_send_error(sid_error_t error, const struct sid_msg_desc *msg_desc,
@@ -89,6 +170,12 @@ static void on_sidewalk_send_error(sid_error_t error, const struct sid_msg_desc 
 {
 	LOG_ERR("Send message err %d (%s)", (int)error, SID_ERROR_T_STR(error));
 	LOG_DBG("Failed to send message(type: %d, id: %u)", (int)msg_desc->type, msg_desc->id);
+#if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+	app_cli_ui_report_event("err", (int)error);
+#endif
+#if defined(CONFIG_SID_END_DEVICE_CLI)
+	dut_flow_notify_send_error(error, msg_desc);
+#endif
 }
 
 static void on_sidewalk_factory_reset(void *context)
@@ -144,6 +231,13 @@ static void on_sidewalk_status_changed(const struct sid_status *status, void *co
 		(status->detail.link_status_mask & SID_LINK_TYPE_2) ? "Up" : "Down",
 		(status->detail.link_status_mask & SID_LINK_TYPE_3) ? "Up" : "Down");
 
+#if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+	/* Push the same status to a connected Web Bluetooth client. */
+	app_cli_ui_report_status(SID_STATUS_REGISTERED == status->detail.registration_status,
+				 SID_STATUS_TIME_SYNCED == status->detail.time_sync_status,
+				 status->detail.link_status_mask);
+#endif
+
 	for (int i = 0; i < SID_LINK_TYPE_MAX_IDX; i++) {
 		enum sid_link_mode mode =
 			(enum sid_link_mode)status->detail.supported_link_modes[i];
@@ -198,6 +292,20 @@ static void app_btn_dfu_state(uint32_t unused)
 	go_to_dfu_state = !go_to_dfu_state;
 }
 
+#if defined(CONFIG_BOARD_SIDEWALK_DEVKIT_NRF54L15_NRF54L15_CPUAPP) && \
+	defined(CONFIG_SID_END_DEVICE_CLI)
+static void app_btn_shiphold_state(uint32_t unused)
+{
+	ARG_UNUSED(unused);
+
+	int err = app_cli_ui_request_ship_mode();
+
+	if (err) {
+		LOG_ERR("shiphold request err %d", err);
+	}
+}
+#endif
+
 static void app_btn_factory_reset(uint32_t unused)
 {
 	ARG_UNUSED(unused);
@@ -217,7 +325,12 @@ static int app_buttons_init(void)
 	button_set_action_short_press(DK_BTN3, app_btn_event_handler, DEMO_BTN_ID_2);
 	button_set_action_short_press(DK_BTN4, app_btn_event_handler, DEMO_BTN_ID_3);
 
+#if defined(CONFIG_BOARD_SIDEWALK_DEVKIT_NRF54L15_NRF54L15_CPUAPP) && \
+	defined(CONFIG_SID_END_DEVICE_CLI)
+	button_set_action_long_press(DK_BTN1, app_btn_shiphold_state, PARAM_UNUSED);
+#else
 	button_set_action_long_press(DK_BTN1, app_btn_dfu_state, PARAM_UNUSED);
+#endif
 	button_set_action_long_press(DK_BTN2, app_btn_factory_reset, PARAM_UNUSED);
 	button_set_action_long_press(DK_BTN3, app_btn_link_switch, PARAM_UNUSED);
 
@@ -248,7 +361,13 @@ static bool gatt_authorize(struct bt_conn *conn, const struct bt_gatt_attr *attr
 	}
 
 	if (cinfo.id == BT_ID_SIDEWALK) {
-		if (sid_ble_bt_attr_is_SMP(attr)) {
+		bool shell_attr = sid_ble_bt_attr_is_SMP(attr);
+
+#if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+		shell_attr = shell_attr || app_cli_ui_bt_attr_is_nus(attr);
+#endif
+
+		if (shell_attr) {
 			return false;
 		}
 	}
@@ -279,18 +398,26 @@ static struct sid_time_sync_config default_time_sync_config = {
 
 void app_start(void)
 {
+	app_rtt_trace("app_start begin\n");
+
 	if (app_buttons_init()) {
 		LOG_ERR("Cannot init buttons");
+		app_rtt_trace("app_start buttons init failed\n");
 	}
+	app_rtt_trace("app_start buttons ready\n");
 
 	if (app_led_init()) {
 		LOG_ERR("Cannot init leds");
+		app_rtt_trace("app_start leds init failed\n");
 	}
+	app_rtt_trace("app_start leds ready\n");
 
 #if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_NFC_ID)
 	if (app_nfc_init()) {
 		LOG_ERR("Cannot init NFC identity tag");
+		app_rtt_trace("app_start nfc init failed\n");
 	}
+	app_rtt_trace("app_start nfc ready\n");
 #endif
 
 	static struct sid_event_callbacks event_callbacks = {
@@ -322,14 +449,42 @@ void app_start(void)
 	int err = bt_gatt_authorization_cb_register(&gatt_authorization_callbacks);
 	if (err) {
 		LOG_ERR("Registering GATT authorization callbacks failed (err %d)", err);
+		app_rtt_trace("app_start gatt auth failed\n");
 		return;
 	}
+	app_rtt_trace("app_start gatt auth ready\n");
+
+#if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+	err = app_cli_ui_init(&sid_ctx);
+	if (err) {
+		LOG_ERR("Failed to initialize NUS shell advertiser (err %d)", err);
+		app_rtt_trace("app_start nus shell failed\n");
+	} else {
+		app_rtt_trace("app_start nus shell ready\n");
+	}
+#endif
 
 	app_start_tasks();
+	app_rtt_trace("app_start tasks started\n");
 	sidewalk_start(&sid_ctx);
+	app_rtt_trace("app_start sidewalk thread started\n");
 	sidewalk_event_send(sidewalk_event_platform_init, NULL, NULL);
 	sidewalk_event_send(sidewalk_event_autostart, NULL, NULL);
+	app_rtt_trace("app_start sidewalk events queued\n");
 
-	k_timer_start(&notify_timer, K_MSEC(NOTIFY_TIMER_DURATION_MS),
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_LINK_AUTOSWITCH)
+	k_work_schedule(&sensor_switch_to_fsk_work,
+			K_SECONDS(CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_FSK_DELAY_S));
+	k_work_schedule(&sensor_switch_to_lora_work,
+			K_SECONDS(CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_FSK_DELAY_S +
+				  CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_LORA_DELAY_S));
+#endif
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
+	k_timer_start(&notify_timer, K_MSEC(NOTIFY_TIMER_INITIAL_DELAY_MS),
 		      K_MSEC(CONFIG_SID_END_DEVICE_NOTIFY_DATA_PERIOD_MS));
+	app_rtt_trace("app_start notify timer started\n");
+#else
+	app_rtt_trace("app_start notify timer disabled\n");
+#endif
 }
