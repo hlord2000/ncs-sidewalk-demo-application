@@ -12,19 +12,23 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <app_mfg_config.h>
+#include <semtech_radio_ifc.h>
 #ifdef CONFIG_SIDEWALK_FILE_TRANSFER_DFU
 #include <sbdt/dfu_file_transfer.h>
 #endif /* CONFIG_SIDEWALK_FILE_TRANSFER_DFU */
 #include <json_printer/sidTypes2str.h>
+#if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+#include <cli/app_cli_ui.h>
+#endif
 LOG_MODULE_REGISTER(sid_cli, CONFIG_SIDEWALK_LOG_LEVEL);
 
-#define DUT_FLOW_BLE_TIMEOUT K_SECONDS(30)
-#define DUT_FLOW_FSK_TIMEOUT K_SECONDS(35)
+#define DUT_FLOW_BLE_TIMEOUT K_SECONDS(15)
+#define DUT_FLOW_FSK_TIMEOUT K_SECONDS(90)
 #define DUT_FLOW_LORA_TIMEOUT K_SECONDS(120)
-#define DUT_FLOW_MAX_BLE_RETRIES UINT32_MAX
-#define DUT_FLOW_MAX_FSK_RETRIES UINT32_MAX
-#define DUT_FLOW_MAX_LORA_RETRIES UINT32_MAX
-#define DUT_FLOW_MAX_TX_RETRIES UINT32_MAX
+#define DUT_FLOW_MAX_BLE_RETRIES 0U
+#define DUT_FLOW_MAX_FSK_RETRIES 0U
+#define DUT_FLOW_MAX_LORA_RETRIES 0U
+#define DUT_FLOW_MAX_TX_RETRIES 2U
 
 enum dut_flow_stage {
 	DUT_FLOW_STAGE_IDLE = 0,
@@ -42,6 +46,7 @@ typedef struct {
 static void dut_flow_timeout_work_handler(struct k_work *work);
 static void dut_flow_timeout_event(sidewalk_ctx_t *sid, void *ctx);
 static void dut_event_flow_tx_result(sidewalk_ctx_t *sid, void *ctx);
+static sid_error_t dut_flow_reach_target(sidewalk_ctx_t *sid, uint32_t target_link_mask);
 static K_WORK_DELAYABLE_DEFINE(dut_flow_timeout_work, dut_flow_timeout_work_handler);
 
 static bool dut_flow_mode_enabled;
@@ -79,6 +84,11 @@ void dut_flow_send_ctx_free(void *ctx)
 		sid_hal_free(flow_send->send.msg.data);
 	}
 	sid_hal_free(flow_send);
+}
+
+bool dut_flow_mode_is_enabled(void)
+{
+	return dut_flow_mode_enabled;
 }
 
 static void dut_flow_reset_state(sidewalk_ctx_t *sid)
@@ -120,6 +130,67 @@ static const char *dut_flow_name(uint32_t link_mask)
 	}
 }
 
+static bool dut_flow_mask_is_target(uint32_t link_mask)
+{
+	return (link_mask == SID_LINK_TYPE_1) || (link_mask == SID_LINK_TYPE_2) ||
+	       (link_mask == (SID_LINK_TYPE_1 | SID_LINK_TYPE_3));
+}
+
+static uint32_t dut_flow_status_to_target_mask(uint32_t link_status_mask)
+{
+	if ((link_status_mask & SID_LINK_TYPE_3) != 0U) {
+		return SID_LINK_TYPE_1 | SID_LINK_TYPE_3;
+	}
+
+	if ((link_status_mask & SID_LINK_TYPE_2) != 0U) {
+		return SID_LINK_TYPE_2;
+	}
+
+	if ((link_status_mask & SID_LINK_TYPE_1) != 0U) {
+		return SID_LINK_TYPE_1;
+	}
+
+	return 0U;
+}
+
+static uint32_t dut_flow_observed_link_mask(const sidewalk_ctx_t *sid)
+{
+	uint32_t observed_link_mask;
+
+	if (sid == NULL) {
+		return 0U;
+	}
+
+	observed_link_mask =
+		dut_flow_status_to_target_mask(sid->last_status.detail.link_status_mask);
+	if (observed_link_mask != 0U) {
+		return observed_link_mask;
+	}
+
+	if (dut_flow_mask_is_target(sid->config.link_mask)) {
+		return sid->config.link_mask;
+	}
+
+	return 0U;
+}
+
+static void dut_flow_sync_current_link_mask(const sidewalk_ctx_t *sid)
+{
+	uint32_t observed_link_mask = dut_flow_observed_link_mask(sid);
+
+	if ((observed_link_mask == 0U) || (observed_link_mask == dut_flow_current_link_mask)) {
+		return;
+	}
+
+	if (dut_flow_current_link_mask != 0U) {
+		LOG_INF("hello-flow observed link moved from %s to %s",
+			dut_flow_name(dut_flow_current_link_mask),
+			dut_flow_name(observed_link_mask));
+	}
+
+	dut_flow_current_link_mask = observed_link_mask;
+}
+
 static const char *dut_flow_stage_name(enum dut_flow_stage stage)
 {
 	switch (stage) {
@@ -140,7 +211,7 @@ static bool dut_flow_has_cached_time(const sidewalk_ctx_t *sid)
 	return dut_flow_cached_time_valid;
 }
 
-static bool dut_flow_is_fsk_ready(const sidewalk_ctx_t *sid)
+static bool dut_flow_is_fsk_time_ready(const sidewalk_ctx_t *sid)
 {
 	return (sid->last_status.state == SID_STATE_READY) &&
 	       dut_flow_has_cached_time(sid) &&
@@ -149,6 +220,11 @@ static bool dut_flow_is_fsk_ready(const sidewalk_ctx_t *sid)
 
 static bool dut_flow_link_is_ready(const sidewalk_ctx_t *sid, uint32_t link_mask)
 {
+	if (link_mask == SID_LINK_TYPE_ANY) {
+		return (sid->last_status.state == SID_STATE_READY) &&
+		       (sid->last_status.detail.link_status_mask != 0U);
+	}
+
 	return (sid->last_status.state == SID_STATE_READY) &&
 	       ((sid->last_status.detail.link_status_mask & link_mask) == link_mask);
 }
@@ -164,21 +240,136 @@ static bool dut_flow_target_is_ready(const sidewalk_ctx_t *sid, uint32_t target_
 	return dut_flow_link_is_ready(sid, ready_mask);
 }
 
+static uint32_t dut_flow_target_for_send_link(uint32_t send_link_mask)
+{
+	switch (send_link_mask) {
+	case SID_LINK_TYPE_1:
+	case SID_LINK_TYPE_2:
+		return send_link_mask;
+	case SID_LINK_TYPE_3:
+		return SID_LINK_TYPE_1 | SID_LINK_TYPE_3;
+	default:
+		return SID_LINK_TYPE_2;
+	}
+}
+
+static uint32_t dut_flow_attempt_mask(uint32_t send_link_mask)
+{
+	switch (send_link_mask) {
+	case SID_LINK_TYPE_1:
+	case SID_LINK_TYPE_2:
+	case SID_LINK_TYPE_3:
+		return send_link_mask;
+	default:
+		return 0U;
+	}
+}
+
+static void dut_flow_mark_attempt(dut_flow_send_ctx_t *flow_send)
+{
+	uint32_t attempt_mask;
+
+	if (flow_send == NULL) {
+		return;
+	}
+
+	attempt_mask = dut_flow_attempt_mask(flow_send->send.desc.link_type);
+	if (attempt_mask != 0U) {
+		flow_send->attempted_link_mask |= attempt_mask;
+	}
+}
+
+static bool dut_flow_attempted(const dut_flow_send_ctx_t *flow_send, uint32_t send_link_mask)
+{
+	uint32_t attempt_mask = dut_flow_attempt_mask(send_link_mask);
+
+	return (flow_send != NULL) && (attempt_mask != 0U) &&
+	       ((flow_send->attempted_link_mask & attempt_mask) != 0U);
+}
+
+static void dut_flow_reset_retries(void)
+{
+	dut_flow_ble_retries = 0U;
+	dut_flow_fsk_retries = 0U;
+	dut_flow_lora_retries = 0U;
+	dut_flow_tx_retries = 0U;
+}
+
+static void dut_flow_release_ownership(void)
+{
+	dut_flow_mode_enabled = false;
+	dut_flow_ble_policy_configured = false;
+	dut_flow_sid = NULL;
+}
+
+static bool dut_flow_send_is_auto(const dut_flow_send_ctx_t *flow_send)
+{
+	return (flow_send != NULL) &&
+	       ((flow_send->target_link_mask == 0U) ||
+		(flow_send->send.desc.link_type == SID_LINK_TYPE_ANY));
+}
+
+static void dut_flow_resolve_auto_send(const sidewalk_ctx_t *sid, dut_flow_send_ctx_t *flow_send)
+{
+	uint32_t link_status_mask;
+	uint32_t target_link_mask = SID_LINK_TYPE_2;
+	enum sid_link_type send_link_type = SID_LINK_TYPE_2;
+
+	if ((sid == NULL) || (flow_send == NULL)) {
+		return;
+	}
+
+	link_status_mask = sid->last_status.detail.link_status_mask;
+
+	if ((link_status_mask & SID_LINK_TYPE_1) != 0U) {
+		target_link_mask = SID_LINK_TYPE_1;
+		send_link_type = SID_LINK_TYPE_1;
+	} else if ((link_status_mask & SID_LINK_TYPE_3) != 0U) {
+		target_link_mask = SID_LINK_TYPE_1 | SID_LINK_TYPE_3;
+		send_link_type = SID_LINK_TYPE_3;
+	} else if ((link_status_mask & SID_LINK_TYPE_2) != 0U) {
+		target_link_mask = SID_LINK_TYPE_2;
+		send_link_type = SID_LINK_TYPE_2;
+	}
+
+	flow_send->target_link_mask = target_link_mask;
+	flow_send->send.desc.link_type = send_link_type;
+	LOG_INF("hello-flow auto selected %s (link_status=0x%08x)",
+		dut_flow_name(send_link_type), link_status_mask);
+}
+
 static void dut_flow_log_status(const sidewalk_ctx_t *sid)
 {
-	LOG_INF("hello-flow status: stage=%s target=%s current=%s cached_time=%s "
-		"pending_send=%s inflight_send=%s retries={BLE:%u, FSK:%u, LoRa:%u, TX:%u} "
-		"link={BLE:%s, FSK:%s, LoRa:%s}",
+	dut_flow_sync_current_link_mask(sid);
+
+	LOG_INF("hello-flow stage=%s target=%s current=%s cached=%u",
 		dut_flow_stage_name(dut_flow_stage), dut_flow_name(dut_flow_target_link_mask),
 		dut_flow_name(dut_flow_current_link_mask),
-		dut_flow_cached_time_valid ? "true" : "false",
-		dut_flow_pending_send != NULL ? "true" : "false",
-		dut_flow_send_inflight ? "true" : "false",
+		dut_flow_cached_time_valid ? 1U : 0U);
+	LOG_INF("hello-flow sid=%u reg=%u time=%u link_mask=0x%08x",
+		(unsigned int)sid->last_status.state,
+		(unsigned int)sid->last_status.detail.registration_status,
+		(unsigned int)sid->last_status.detail.time_sync_status,
+		(unsigned int)sid->last_status.detail.link_status_mask);
+	LOG_INF("hello-flow pending=%u inflight=%u retries B/F/L/T=%u/%u/%u/%u",
+		dut_flow_pending_send != NULL ? 1U : 0U,
+		dut_flow_send_inflight ? 1U : 0U,
 		(unsigned int)dut_flow_ble_retries, (unsigned int)dut_flow_fsk_retries,
-		(unsigned int)dut_flow_lora_retries, (unsigned int)dut_flow_tx_retries,
-		(sid->last_status.detail.link_status_mask & SID_LINK_TYPE_1) ? "Up" : "Down",
-		(sid->last_status.detail.link_status_mask & SID_LINK_TYPE_2) ? "Up" : "Down",
-		(sid->last_status.detail.link_status_mask & SID_LINK_TYPE_3) ? "Up" : "Down");
+		(unsigned int)dut_flow_lora_retries, (unsigned int)dut_flow_tx_retries);
+	LOG_INF("hello-flow links BLE=%u FSK=%u LoRa=%u",
+		(sid->last_status.detail.link_status_mask & SID_LINK_TYPE_1) ? 1U : 0U,
+		(sid->last_status.detail.link_status_mask & SID_LINK_TYPE_2) ? 1U : 0U,
+		(sid->last_status.detail.link_status_mask & SID_LINK_TYPE_3) ? 1U : 0U);
+
+#if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+	/* Mirror current status to a connected Web Bluetooth client so the
+	 * "sid flow status" command (Refresh / on-connect poll) is two-way.
+	 */
+	app_cli_ui_report_status(
+		SID_STATUS_REGISTERED == sid->last_status.detail.registration_status,
+		SID_STATUS_TIME_SYNCED == sid->last_status.detail.time_sync_status,
+		sid->last_status.detail.link_status_mask);
+#endif
 }
 
 static bool dut_check_mfg_data(void)
@@ -318,10 +509,7 @@ static sid_error_t dut_flow_prepare_session(sidewalk_ctx_t *sid)
 	dut_flow_ble_policy_configured = false;
 	dut_flow_current_link_mask = 0U;
 	dut_flow_target_link_mask = 0U;
-	dut_flow_ble_retries = 0U;
-	dut_flow_fsk_retries = 0U;
-	dut_flow_lora_retries = 0U;
-	dut_flow_tx_retries = 0U;
+	dut_flow_reset_retries();
 	dut_flow_stage = DUT_FLOW_STAGE_IDLE;
 	dut_flow_send_inflight = false;
 	dut_flow_sid = sid;
@@ -341,9 +529,13 @@ static uint32_t dut_normalize_hello_mask(uint32_t link_mask)
 	}
 }
 
-static sid_error_t dut_flow_transition(sidewalk_ctx_t *sid, uint32_t target_link_mask, bool force_restart)
+static sid_error_t dut_flow_transition(sidewalk_ctx_t *sid, uint32_t target_link_mask,
+				       bool force_restart)
 {
 	sid_error_t e = SID_ERROR_NONE;
+	uint32_t stop_link_mask;
+
+	dut_flow_sync_current_link_mask(sid);
 
 	if (!force_restart && (dut_flow_current_link_mask == target_link_mask)) {
 		sid->config.link_mask = target_link_mask;
@@ -355,12 +547,30 @@ static sid_error_t dut_flow_transition(sidewalk_ctx_t *sid, uint32_t target_link
 
 	LOG_INF("Sidewalk link switch to %s", dut_flow_name(target_link_mask));
 
-	if (dut_flow_current_link_mask != 0U) {
-		e = sid_stop(sid->handle, dut_flow_current_link_mask);
+	stop_link_mask = dut_flow_current_link_mask;
+	if (stop_link_mask != 0U) {
+		e = sid_stop(sid->handle, stop_link_mask);
 		LOG_INF("hello-flow sid_stop returned %d (%s)", (int)e, SID_ERROR_T_STR(e));
 		if (e != SID_ERROR_NONE) {
-			return e;
+			uint32_t observed_link_mask = dut_flow_observed_link_mask(sid);
+
+			if ((e == SID_ERROR_INVALID_ARGS) && (observed_link_mask != 0U) &&
+			    (observed_link_mask != stop_link_mask)) {
+				LOG_WRN("hello-flow stop mask stale; retrying observed %s",
+					dut_flow_name(observed_link_mask));
+				dut_flow_current_link_mask = observed_link_mask;
+				stop_link_mask = observed_link_mask;
+				e = sid_stop(sid->handle, stop_link_mask);
+				LOG_INF("hello-flow sid_stop returned %d (%s)", (int)e,
+					SID_ERROR_T_STR(e));
+			}
+
+			if (e != SID_ERROR_NONE) {
+				return e;
+			}
 		}
+
+		dut_flow_current_link_mask = 0U;
 	}
 
 	e = sid_start(sid->handle, target_link_mask);
@@ -386,6 +596,91 @@ static void dut_flow_timeout_work_handler(struct k_work *work)
 	if (sidewalk_event_send(dut_flow_timeout_event, NULL, NULL) != 0) {
 		LOG_ERR("hello-flow failed to queue timeout event");
 	}
+}
+
+static void dut_flow_fail_pending_send(const char *reason)
+{
+	if (dut_flow_pending_send != NULL) {
+		LOG_ERR("hello-flow dropping pending %s send: %s",
+			dut_flow_name(dut_flow_pending_send->send.desc.link_type), reason);
+		dut_flow_send_ctx_free(dut_flow_pending_send);
+		dut_flow_pending_send = NULL;
+	}
+
+	dut_flow_send_inflight = false;
+	dut_flow_target_link_mask = 0U;
+	dut_flow_tx_retries = 0U;
+	dut_flow_cancel_wait();
+	dut_flow_release_ownership();
+}
+
+static bool dut_flow_fallback_to(sidewalk_ctx_t *sid, uint32_t send_link_mask,
+				 const char *reason)
+{
+	uint32_t previous_link_mask;
+	sid_error_t e;
+
+	if ((sid == NULL) || (dut_flow_pending_send == NULL)) {
+		return false;
+	}
+
+	previous_link_mask = dut_flow_pending_send->send.desc.link_type;
+	dut_flow_pending_send->send.desc.link_type = (enum sid_link_type)send_link_mask;
+	dut_flow_pending_send->target_link_mask = dut_flow_target_for_send_link(send_link_mask);
+	dut_flow_mark_attempt(dut_flow_pending_send);
+	dut_flow_send_inflight = false;
+	dut_flow_reset_retries();
+
+	LOG_WRN("hello-flow %s; falling back from %s to %s", reason,
+		dut_flow_name(previous_link_mask), dut_flow_name(send_link_mask));
+
+	e = dut_flow_reach_target(sid, dut_flow_pending_send->target_link_mask);
+	if (e != SID_ERROR_NONE) {
+		LOG_ERR("hello-flow fallback to %s failed: %d (%s)",
+			dut_flow_name(send_link_mask), (int)e, SID_ERROR_T_STR(e));
+		return false;
+	}
+
+	return true;
+}
+
+static bool dut_flow_select_fallback(sidewalk_ctx_t *sid, const char *reason)
+{
+	uint32_t link_status_mask;
+
+	if ((sid == NULL) || (dut_flow_pending_send == NULL) ||
+	    !dut_flow_pending_send->allow_fallback) {
+		return false;
+	}
+
+	dut_flow_mark_attempt(dut_flow_pending_send);
+	link_status_mask = sid->last_status.detail.link_status_mask;
+
+	if (((link_status_mask & SID_LINK_TYPE_1) != 0U) &&
+	    !dut_flow_attempted(dut_flow_pending_send, SID_LINK_TYPE_1)) {
+		return dut_flow_fallback_to(sid, SID_LINK_TYPE_1, reason);
+	}
+
+	if (((link_status_mask & SID_LINK_TYPE_3) != 0U) &&
+	    !dut_flow_attempted(dut_flow_pending_send, SID_LINK_TYPE_3)) {
+		return dut_flow_fallback_to(sid, SID_LINK_TYPE_3, reason);
+	}
+
+	if (((link_status_mask & SID_LINK_TYPE_2) != 0U) &&
+	    !dut_flow_attempted(dut_flow_pending_send, SID_LINK_TYPE_2)) {
+		return dut_flow_fallback_to(sid, SID_LINK_TYPE_2, reason);
+	}
+
+	if (!dut_flow_attempted(dut_flow_pending_send, SID_LINK_TYPE_2)) {
+		return dut_flow_fallback_to(sid, SID_LINK_TYPE_2, reason);
+	}
+
+	if (dut_flow_has_cached_time(sid) &&
+	    !dut_flow_attempted(dut_flow_pending_send, SID_LINK_TYPE_3)) {
+		return dut_flow_fallback_to(sid, SID_LINK_TYPE_3, reason);
+	}
+
+	return false;
 }
 
 static void dut_flow_timeout_event(sidewalk_ctx_t *sid, void *ctx)
@@ -423,9 +718,14 @@ static void dut_flow_timeout_event(sidewalk_ctx_t *sid, void *ctx)
 	}
 
 	if (*retry_counter >= max_retries) {
-		LOG_ERR("hello-flow %s timed out after %u attempt(s)",
+		LOG_WRN("hello-flow %s timed out after %u attempt(s)",
 			dut_flow_stage_name(dut_flow_stage), (unsigned int)(*retry_counter + 1U));
-		dut_flow_cancel_wait();
+		if (dut_flow_select_fallback(sid, dut_flow_stage_name(dut_flow_stage))) {
+			dut_flow_log_status(sid);
+			return;
+		}
+		dut_flow_fail_pending_send("no available fallback link");
+		dut_flow_log_status(sid);
 		return;
 	}
 
@@ -437,7 +737,12 @@ static void dut_flow_timeout_event(sidewalk_ctx_t *sid, void *ctx)
 	if (e != SID_ERROR_NONE) {
 		LOG_ERR("hello-flow retry to %s failed: %d (%s)", dut_flow_name(retry_mask), (int)e,
 			SID_ERROR_T_STR(e));
-		dut_flow_cancel_wait();
+		if (dut_flow_select_fallback(sid, "link restart failed")) {
+			dut_flow_log_status(sid);
+			return;
+		}
+		dut_flow_fail_pending_send("link restart failed");
+		dut_flow_log_status(sid);
 		return;
 	}
 
@@ -466,9 +771,13 @@ static void dut_flow_try_pending_send(sidewalk_ctx_t *sid)
 	sid_error_t e = sid_put_msg(sid->handle, &dut_flow_pending_send->send.msg,
 				    &dut_flow_pending_send->send.desc);
 	if (e != SID_ERROR_NONE) {
-		LOG_WRN("hello-flow pending send on %s failed: %d (%s), keeping queued",
+		LOG_WRN("hello-flow pending send on %s failed: %d (%s)",
 			dut_flow_name(dut_flow_pending_send->send.desc.link_type), (int)e,
 			SID_ERROR_T_STR(e));
+		if (dut_flow_select_fallback(sid, "send rejected")) {
+			dut_flow_log_status(sid);
+			return;
+		}
 		dut_flow_target_link_mask = dut_flow_pending_send->target_link_mask;
 		if (dut_flow_pending_send->send.desc.link_type == SID_LINK_TYPE_1) {
 			dut_flow_schedule_wait(sid, DUT_FLOW_STAGE_WAIT_BLE);
@@ -490,6 +799,7 @@ static sid_error_t dut_flow_reach_target(sidewalk_ctx_t *sid, uint32_t target_li
 {
 	sid_error_t e;
 
+	dut_flow_sync_current_link_mask(sid);
 	dut_flow_target_link_mask = target_link_mask;
 
 	if ((target_link_mask == (SID_LINK_TYPE_1 | SID_LINK_TYPE_3)) &&
@@ -601,12 +911,16 @@ static void dut_event_flow_tx_result(sidewalk_ctx_t *sid, void *ctx)
 	}
 
 	if (dut_flow_tx_retries >= DUT_FLOW_MAX_TX_RETRIES) {
-		LOG_ERR("hello-flow send on %s failed after %u retry attempt(s): %d (%s)",
+		LOG_WRN("hello-flow send on %s failed after %u retry attempt(s): %d (%s)",
 			dut_flow_name(result->desc.link_type), (unsigned int)dut_flow_tx_retries,
 			(int)result->error, SID_ERROR_T_STR(result->error));
-		dut_flow_send_ctx_free(dut_flow_pending_send);
-		dut_flow_pending_send = NULL;
 		dut_flow_send_inflight = false;
+		if (dut_flow_select_fallback(sid, "send failed")) {
+			dut_flow_log_status(sid);
+			return;
+		}
+		dut_flow_fail_pending_send("send failed");
+		dut_flow_log_status(sid);
 		return;
 	}
 
@@ -710,6 +1024,23 @@ void dut_event_get_status(sidewalk_ctx_t *sid, void *ctx)
 				(mode & SID_LINK_MODE_MOBILE) ? "True" : "False");
 		}
 	}
+}
+void dut_event_radio_trim(sidewalk_ctx_t *sid, void *ctx)
+{
+	ARG_UNUSED(sid);
+
+	uint32_t trim = dut_ctx_get_uint32(ctx);
+
+	if (trim > UINT16_MAX) {
+		LOG_INF("radio_trim current 0x%04x",
+			(unsigned int)semtech_radio_get_trim_cap_val());
+		return;
+	}
+
+	int32_t e = semtech_radio_set_trim_cap_val((uint16_t)trim);
+	LOG_INF("radio_trim set 0x%04x returned %d, current 0x%04x",
+		(unsigned int)trim, (int)e,
+		(unsigned int)semtech_radio_get_trim_cap_val());
 }
 void dut_event_get_option(sidewalk_ctx_t *sid, void *ctx)
 {
@@ -823,13 +1154,15 @@ void dut_event_flow_on_status(sidewalk_ctx_t *sid)
 		return;
 	}
 
+	dut_flow_sync_current_link_mask(sid);
+
 	if (sid->last_status.detail.time_sync_status == SID_STATUS_TIME_SYNCED) {
 		dut_flow_cached_time_valid = true;
 	}
 
 	if ((dut_flow_target_link_mask == (SID_LINK_TYPE_1 | SID_LINK_TYPE_3)) &&
 	    (dut_flow_current_link_mask == SID_LINK_TYPE_2) &&
-	    dut_flow_is_fsk_ready(sid)) {
+	    dut_flow_is_fsk_time_ready(sid)) {
 		uint32_t target = dut_flow_target_link_mask;
 		sid_error_t e;
 
@@ -858,6 +1191,8 @@ void dut_event_flow_switch(sidewalk_ctx_t *sid, void *ctx)
 
 	ARG_UNUSED(ctx);
 
+	dut_flow_sync_current_link_mask(sid);
+
 	if (dut_flow_current_link_mask == SID_LINK_TYPE_2) {
 		target_link_mask = SID_LINK_TYPE_1 | SID_LINK_TYPE_3;
 	} else if (dut_flow_current_link_mask == (SID_LINK_TYPE_1 | SID_LINK_TYPE_3)) {
@@ -878,10 +1213,7 @@ void dut_event_flow_set(sidewalk_ctx_t *sid, void *ctx)
 		return;
 	}
 
-	dut_flow_ble_retries = 0U;
-	dut_flow_fsk_retries = 0U;
-	dut_flow_lora_retries = 0U;
-	dut_flow_tx_retries = 0U;
+	dut_flow_reset_retries();
 	(void)dut_flow_reach_target(sid, target_link_mask);
 	dut_flow_log_status(sid);
 }
@@ -902,6 +1234,11 @@ void dut_event_flow_send(sidewalk_ctx_t *sid, void *ctx)
 		return;
 	}
 
+	if (dut_flow_send_is_auto(flow_send)) {
+		flow_send->allow_fallback = true;
+		dut_flow_resolve_auto_send(sid, flow_send);
+	}
+
 	if (dut_flow_pending_send != NULL) {
 		LOG_WRN("hello-flow replacing older pending send");
 		dut_flow_send_ctx_free(dut_flow_pending_send);
@@ -909,6 +1246,7 @@ void dut_event_flow_send(sidewalk_ctx_t *sid, void *ctx)
 
 	dut_flow_send_inflight = false;
 	dut_flow_pending_send = flow_send;
+	dut_flow_mark_attempt(dut_flow_pending_send);
 	LOG_INF("hello-flow queued send for %s (%u byte payload)",
 		dut_flow_name(dut_flow_pending_send->send.desc.link_type),
 		(unsigned int)dut_flow_pending_send->send.msg.size);
@@ -918,10 +1256,7 @@ void dut_event_flow_send(sidewalk_ctx_t *sid, void *ctx)
 		return;
 	}
 
-	dut_flow_ble_retries = 0U;
-	dut_flow_fsk_retries = 0U;
-	dut_flow_lora_retries = 0U;
-	dut_flow_tx_retries = 0U;
+	dut_flow_reset_retries();
 	(void)dut_flow_reach_target(sid, dut_normalize_hello_mask(flow_send->target_link_mask));
 	dut_flow_log_status(sid);
 }
@@ -943,6 +1278,7 @@ void dut_event_flow_cancel(sidewalk_ctx_t *sid, void *ctx)
 	dut_flow_send_inflight = false;
 	dut_flow_target_link_mask = 0U;
 	dut_flow_cancel_wait();
+	dut_flow_release_ownership();
 	LOG_INF("hello-flow pending target/send canceled");
 	dut_flow_log_status(sid);
 }

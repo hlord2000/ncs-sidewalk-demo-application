@@ -200,7 +200,9 @@ void sidewalk_event_new_status(sidewalk_ctx_t *sid, void *ctx)
 	}
 
 	memcpy(&sid->last_status, p_status, sizeof(struct sid_status));
+#ifdef CONFIG_SID_END_DEVICE_CLI
 	dut_event_flow_on_status(sid);
+#endif
 }
 void sidewalk_event_send_msg(sidewalk_ctx_t *sid, void *ctx)
 {

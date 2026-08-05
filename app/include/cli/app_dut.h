@@ -7,10 +7,15 @@
 #ifndef APP_DUT_H
 #define APP_DUT_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include <sidewalk.h>
 
 typedef struct {
 	uint32_t target_link_mask;
+	uint32_t attempted_link_mask;
+	bool allow_fallback;
 	sidewalk_msg_t send;
 } dut_flow_send_ctx_t;
 
@@ -21,6 +26,7 @@ void dut_event_stop(sidewalk_ctx_t *sid, void *ctx);
 void dut_event_get_mtu(sidewalk_ctx_t *sid, void *ctx);
 void dut_event_get_time(sidewalk_ctx_t *sid, void *ctx);
 void dut_event_get_status(sidewalk_ctx_t *sid, void *ctx);
+void dut_event_radio_trim(sidewalk_ctx_t *sid, void *ctx);
 void dut_event_get_option(sidewalk_ctx_t *sid, void *ctx);
 void dut_event_set_option(sidewalk_ctx_t *sid, void *ctx);
 void dut_event_set_dest_id(sidewalk_ctx_t *sid, void *ctx);
@@ -34,5 +40,6 @@ void dut_event_flow_on_status(sidewalk_ctx_t *sid);
 void dut_flow_notify_msg_sent(const struct sid_msg_desc *msg_desc);
 void dut_flow_notify_send_error(sid_error_t error, const struct sid_msg_desc *msg_desc);
 void dut_flow_send_ctx_free(void *ctx);
+bool dut_flow_mode_is_enabled(void);
 
 #endif /* APP_DUT_H */
