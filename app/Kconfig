@@ -80,7 +80,7 @@ config SHELL_BACKEND_SERIAL_RX_RING_BUFFER_SIZE
 	default 1024
 
 config SID_END_DEVICE_NUS_SHELL
-	bool "Enable BLE NUS shell companion"
+	bool "BLE NUS shell companion"
 	depends on BT
 	select SHELL_BT_NUS
 	help
@@ -93,6 +93,10 @@ if SID_END_DEVICE_NUS_SHELL
 config SID_END_DEVICE_NUS_DEVICE_NAME
 	string "BLE name for the NUS shell advertiser"
 	default "XIAO-WebShell"
+	help
+	  Complete local name placed in the primary legacy advertising packet.
+	  Keep the encoded name at 13 bytes or fewer so it fits beside the
+	  required advertising flags and Sidewalk identity fingerprint.
 
 config SID_END_DEVICE_NUS_ADV_INTERVAL_MS
 	int "NUS advertising interval in ms"
