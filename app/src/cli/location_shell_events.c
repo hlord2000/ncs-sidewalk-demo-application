@@ -9,6 +9,7 @@
 #include <sidewalk.h>
 #include <sid_location.h>
 #include <sid_detect_unwanted_location_tracker.h>
+#include <cli/app_cli_ui.h>
 #include <zephyr/logging/log.h>
 #include <string.h>
 #include <stdio.h>
@@ -43,9 +44,11 @@ struct dult_set_params {
 
 void location_callback(const struct sid_location_result *const result, void *context)
 {
+	LOG_INF("loc status: %d", result->status);
 	LOG_INF("loc send result: %d", result->err);
 	LOG_INF("loc effort mode: %d", result->mode);
 	LOG_INF("loc link type: %d", result->link);
+	app_cli_ui_report_location(result->status, result->err, result->mode, result->link);
 	if (result->mode == SID_LOCATION_EFFORT_L3 || result->mode == SID_LOCATION_EFFORT_L4) {
 		LOG_INF("loc payload:");
 		LOG_HEXDUMP_INF(result->payload, result->size, "loc payload");
