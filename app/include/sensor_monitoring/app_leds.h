@@ -11,7 +11,9 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#if defined(CONFIG_BOARD_THINGY53_NRF5340_CPUAPP)
+#if defined(CONFIG_BOARD_SIDEWALK_DEVKIT_NRF54L15_NRF54L15_CPUAPP)
+#define APP_LEDS_MAX 1
+#elif defined(CONFIG_BOARD_THINGY53_NRF5340_CPUAPP)
 #define APP_LEDS_MAX 3
 #else
 #define APP_LEDS_MAX 4

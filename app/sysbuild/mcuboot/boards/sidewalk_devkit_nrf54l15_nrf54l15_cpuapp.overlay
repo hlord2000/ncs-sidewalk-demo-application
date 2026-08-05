@@ -1,0 +1,30 @@
+/*
+ * Copyright (c) 2026
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+&i2c20 {
+	status = "disabled";
+};
+
+&i2c21 {
+	status = "disabled";
+};
+
+&i2c22 {
+	status = "disabled";
+};
+
+&spi00 {
+	status = "disabled";
+};
+
+&sx1262 {
+	status = "disabled";
+	/delete-property/ dio3-output-voltage;
+};
+
+&adc {
+	status = "disabled";
+};

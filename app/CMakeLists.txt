@@ -6,6 +6,14 @@
 
 cmake_minimum_required(VERSION 3.20.0)
 
+get_filename_component(SIDEWALK_DEVKIT_BOARD_MODULE
+    "${CMAKE_CURRENT_LIST_DIR}/../../../Sidewalk_Devkit_Board_Files"
+    ABSOLUTE
+)
+if(EXISTS "${SIDEWALK_DEVKIT_BOARD_MODULE}/zephyr/module.yml")
+    list(APPEND ZEPHYR_EXTRA_MODULES "${SIDEWALK_DEVKIT_BOARD_MODULE}")
+endif()
+
 # Zephyr CMake project
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(sidewalk_sid_end_device)

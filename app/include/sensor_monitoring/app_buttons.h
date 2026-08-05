@@ -10,7 +10,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#if defined(CONFIG_BOARD_THINGY53_NRF5340_CPUAPP)
+#if defined(CONFIG_BOARD_THINGY53_NRF5340_CPUAPP) || \
+	defined(CONFIG_BOARD_SIDEWALK_DEVKIT_NRF54L15_NRF54L15_CPUAPP)
 #define APP_BUTTONS_MAX 1
 #else
 #define APP_BUTTONS_MAX 4
