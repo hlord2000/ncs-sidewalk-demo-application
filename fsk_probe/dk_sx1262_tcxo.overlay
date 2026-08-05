@@ -1,0 +1,4 @@
+&lora_semtech_sx126xmb2xxs {
+	dio3-as-tcxo-control;
+	tcxo-wakeup-time = <320>;
+};

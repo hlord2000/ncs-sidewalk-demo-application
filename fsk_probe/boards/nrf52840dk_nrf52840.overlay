@@ -1,0 +1,51 @@
+/*
+ * Copyright (c) 2026
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+#include <zephyr/dt-bindings/lora_lbm/sx126x.h>
+
+/ {
+	chosen {
+		zephyr,lora-transceiver = &lora_semtech_sx126xmb2xxs;
+	};
+
+	aliases {
+		lora-transceiver = &lora_semtech_sx126xmb2xxs;
+	};
+
+	zephyr,user {
+		led-sniff-gpios = <&arduino_header 10 GPIO_ACTIVE_HIGH>;
+		led-tx-gpios = <&arduino_header 4 GPIO_ACTIVE_HIGH>;
+		led-rx-gpios = <&arduino_header 5 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/delete-node/ &arduino_spi;
+
+arduino_spi: &spi2 {
+	status = "okay";
+	pinctrl-0 = <&spi3_default>;
+	pinctrl-1 = <&spi3_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	cs-gpios = <&arduino_header 13 GPIO_ACTIVE_LOW>;
+
+	lora_semtech_sx126xmb2xxs: lora@0 {
+		compatible = "semtech,sx1262-new";
+		reg = <0>;
+		spi-max-frequency = <DT_FREQ_M(8)>;
+
+		reset-gpios = <&arduino_header 0 GPIO_ACTIVE_LOW>;
+		busy-gpios = <&arduino_header 9 GPIO_ACTIVE_HIGH>;
+		dio1-gpios = <&arduino_header 11 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+		antenna-enable-gpios = <&arduino_header 14 GPIO_ACTIVE_HIGH>;
+		dio2-as-rf-switch;
+
+		reg-mode = <SX126X_REG_MODE_DCDC>;
+		rx-boosted;
+		tcxo-wakeup-time = <0>;
+		tcxo-voltage = <SX126X_TCXO_SUPPLY_1_8V>;
+	};
+};

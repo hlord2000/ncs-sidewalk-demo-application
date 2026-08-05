@@ -1,0 +1,5 @@
+#include <zephyr/dt-bindings/lora_lbm/sx126x.h>
+
+&lora_semtech_sx126xmb2xxs {
+	reg-mode = <SX126X_REG_MODE_LDO>;
+};

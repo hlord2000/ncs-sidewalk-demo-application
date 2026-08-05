@@ -1,0 +1,31 @@
+/*
+ * Copyright (c) 2026
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+#include <zephyr/dt-bindings/lora_lbm/sx126x.h>
+
+/ {
+	chosen {
+		zephyr,lora-transceiver = &lora_semtech_sx126xmb2xxs;
+	};
+
+	aliases {
+		lora-transceiver = &lora_semtech_sx126xmb2xxs;
+	};
+};
+
+arduino_spi: &spi00 {
+	status = "okay";
+};
+
+lora_semtech_sx126xmb2xxs: &sx1262 {
+	compatible = "semtech,sx1262-new";
+	/delete-property/ dio2-tx-enable;
+	dio2-as-rf-switch;
+	reg-mode = <SX126X_REG_MODE_DCDC>;
+	rx-boosted;
+	/* DIO3 powers ANT_SW/RF switch VDD on the devkit. */
+	dio3-output-voltage = <SX126X_TCXO_SUPPLY_3_3V>;
+};

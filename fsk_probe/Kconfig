@@ -1,0 +1,123 @@
+#
+# Copyright (c) 2026
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+menu "FSK probe"
+
+choice FSK_PROBE_ROLE
+	prompt "FSK probe role"
+	default FSK_PROBE_ROLE_RX
+
+config FSK_PROBE_ROLE_RX
+	bool "Receive"
+
+config FSK_PROBE_ROLE_TX
+	bool "Transmit"
+
+endchoice
+
+config FSK_PROBE_FREQ_HZ
+	int "FSK probe frequency in Hz"
+	default 902000000
+
+config FSK_PROBE_TX_POWER_DBM
+	int "FSK probe TX power in dBm"
+	default 14
+
+config FSK_PROBE_BIT_RATE_BPS
+	int "FSK bit rate in bits per second"
+	default 50000
+	range 1000 300000
+
+config FSK_PROBE_FREQ_DEV_HZ
+	int "FSK frequency deviation in Hz"
+	default 25000
+	range 500 200000
+
+config FSK_PROBE_RX_BW_DSB_PARAM
+	int "SX126x GFSK double-sideband RX bandwidth parameter"
+	default 26
+	help
+	  Raw SX126x GFSK bandwidth enum value. Defaults to
+	  SX126X_GFSK_BW_156200, matching the Sidewalk 50 kbps profile.
+
+config FSK_PROBE_MOD_SHAPING
+	int "SX126x GFSK modulation shaping parameter"
+	default 11
+	help
+	  Raw SX126x GFSK shaping enum value. Defaults to
+	  SX126X_GFSK_MOD_SHAPE_BT_1, matching the Sidewalk 50 kbps profile.
+
+config FSK_PROBE_PREAMBLE_LEN_BYTES
+	int "FSK preamble length in bytes"
+	default 16
+	range 2 1024
+
+config FSK_PROBE_PREAMBLE_MIN_DETECT
+	int "SX126x GFSK preamble detector threshold"
+	default 5
+	range 0 7
+	help
+	  Raw SX126x GFSK preamble detector enum. Defaults to 0x05
+	  (16-bit detector), matching the Sidewalk SX126x driver default.
+	  Useful diagnostic values are 0x04 (8-bit detector), 0x06
+	  (24-bit detector), 0x07 (32-bit detector), and 0x00 (off).
+
+config FSK_PROBE_RX_TIMEOUT_MS
+	int "FSK probe RX window timeout in milliseconds"
+	default 5000
+	range 100 60000
+
+config FSK_PROBE_RX_RSSI_SAMPLE_MS
+	int "RX-window RSSI sample period in milliseconds"
+	default 100
+	range 0 5000
+	help
+	  Sample instantaneous radio RSSI during RX windows and log aggregate
+	  min/max/average values. Set to 0 to disable sampling.
+
+config FSK_PROBE_INTERVAL_MS
+	int "FSK probe TX interval in ms"
+	default 1000
+
+config FSK_PROBE_TX_CONTINUOUS_PREAMBLE
+	bool "Transmit continuous FSK preamble"
+	depends on FSK_PROBE_ROLE_TX
+
+config FSK_PROBE_TX_CONTINUOUS_WAVE
+	bool "Transmit continuous unmodulated carrier"
+	depends on FSK_PROBE_ROLE_TX
+
+config FSK_PROBE_SWEEP_TRIM
+	bool "Sweep SX126x crystal trim values while receiving"
+
+config FSK_PROBE_SWEEP_FREQ
+	bool "Sweep receiver frequency offsets while receiving"
+
+config FSK_PROBE_SHORT_SYNC
+	bool "Use two-byte Sidewalk FSK sync without the leading preamble byte"
+
+config FSK_PROBE_LORAMAC_SYNC
+	bool "Use LoRaMac reference GFSK sync word"
+
+config FSK_PROBE_FREQ_SWEEP_START_HZ
+	int "Receiver frequency sweep start offset in Hz"
+	default -200000
+	depends on FSK_PROBE_SWEEP_FREQ
+
+config FSK_PROBE_FREQ_SWEEP_STOP_HZ
+	int "Receiver frequency sweep stop offset in Hz"
+	default 200000
+	depends on FSK_PROBE_SWEEP_FREQ
+
+config FSK_PROBE_FREQ_SWEEP_STEP_HZ
+	int "Receiver frequency sweep step in Hz"
+	default 10000
+	range 1 1000000
+	depends on FSK_PROBE_SWEEP_FREQ
+
+endmenu
+
+source "Kconfig.zephyr"
