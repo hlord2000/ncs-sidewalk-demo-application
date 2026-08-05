@@ -17,7 +17,6 @@ src/main.c
 src/sidewalk.c
 src/sidewalk_events.c
 )
-
 target_sources_ifdef(CONFIG_SIDEWALK_FILE_TRANSFER app PRIVATE 
     src/sbdt/scratch_buffer.c
 )
@@ -49,7 +48,6 @@ if(CONFIG_SID_END_DEVICE_CLI)
         src/cli/app_cli_ui.c
         src/cli/app_dut.c
         src/cli/app_shell.c
-        src/cli/app_cli_ui.c
     )
     target_sources_ifdef(CONFIG_SIDEWALK_FILE_TRANSFER_SHELL app PRIVATE
         src/cli/sbdt_shell.c
