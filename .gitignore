@@ -1,5 +1,7 @@
 build/
 **/build/
+build-*/
+**/build-*/
 .west/
 .venv/
 __pycache__/
