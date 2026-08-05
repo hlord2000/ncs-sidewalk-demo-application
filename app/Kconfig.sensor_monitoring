@@ -16,6 +16,14 @@ config SID_END_DEVICE_FUEL_GAUGE
       nRF Fuel Gauge library.
     select NRF_FUEL_GAUGE
 
+config SID_END_DEVICE_SENSOR_NFC_ID
+    bool "Expose device identity over NFC"
+    depends on NFC_T2T_NRFXLIB
+    select NFC_NDEF
+    select NFC_NDEF_MSG
+    select NFC_NDEF_RECORD
+    select NFC_NDEF_TEXT_RECORD
+
 config SIDEWALK_THREAD_PRIORITY
     default 12
 

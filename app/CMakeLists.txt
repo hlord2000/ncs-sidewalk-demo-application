@@ -33,6 +33,9 @@ if(CONFIG_SID_END_DEVICE_SENSOR_MONITORING)
         src/sensor_monitoring/app_rx.c
         src/sensor_monitoring/app.c
     )
+    target_sources_ifdef(CONFIG_SID_END_DEVICE_SENSOR_NFC_ID app PRIVATE
+        src/sensor_monitoring/app_nfc.c
+    )
 elseif(CONFIG_SID_END_DEVICE_DUT)
     target_sources(app PRIVATE
         src/cli/app.c

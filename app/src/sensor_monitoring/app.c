@@ -9,6 +9,9 @@
 #include <sensor_monitoring/app_rx.h>
 #include <sensor_monitoring/app_buttons.h>
 #include <sensor_monitoring/app_leds.h>
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_NFC_ID)
+#include <sensor_monitoring/app_nfc.h>
+#endif
 #include <app_ble_config.h>
 #include <sidewalk_dfu/nordic_dfu.h>
 #include <app_subGHz_config.h>
@@ -283,6 +286,12 @@ void app_start(void)
 	if (app_led_init()) {
 		LOG_ERR("Cannot init leds");
 	}
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_NFC_ID)
+	if (app_nfc_init()) {
+		LOG_ERR("Cannot init NFC identity tag");
+	}
+#endif
 
 	static struct sid_event_callbacks event_callbacks = {
 		.context = &sid_ctx,
