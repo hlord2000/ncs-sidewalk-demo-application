@@ -5,6 +5,7 @@
  */
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -12,17 +13,22 @@
 #include <string.h>
 #include <sys/errno.h>
 #include <zephyr/shell/shell.h>
+#include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 
 #include <sid_api.h>
 #include <sid_900_cfg.h>
 #include <sid_hal_memory_ifc.h>
 
+#include <cli/app_cli_ui.h>
 #include <cli/app_shell.h>
 #include <cli/app_dut.h>
 #include <sid_sdk_version.h>
 #include <sidewalk_version.h>
 #include <sidewalk.h>
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_CLI_SENSOR_COMMANDS)
+#include <sensor_monitoring/app_sensor.h>
+#endif
 #if defined(CONFIG_SIDEWALK_DFU_SERVICE_BLE)
 #include <sidewalk_dfu/nordic_dfu.h>
 #endif
@@ -40,6 +46,10 @@
 
 #define CLI_MAX_DATA_LEN (CONFIG_SHELL_CMD_BUFF_SIZE / 2)
 #define CLI_MAX_HEX_STR_LEN CONFIG_SHELL_CMD_BUFF_SIZE
+#define CLI_SENSOR_PAYLOAD_SIZE_MAX 192
+#define CLI_POWER_PAYLOAD_SIZE_MAX 160
+#define CLI_SID_MSG_TTL_MAX 60
+#define CLI_SID_MSG_RETRIES_MAX 3
 
 #define CHECK_ARGUMENT_COUNT(argc, required, optional)                                             \
 	if ((argc < required) || (argc > (required + optional))) {                                 \
@@ -96,6 +106,15 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      CMD_SID_FLOW_CANCEL_ARG_REQUIRED, CMD_SID_FLOW_CANCEL_ARG_OPTIONAL),
 	SHELL_CMD_ARG(connect, NULL, CMD_SID_FLOW_CONNECT_DESCRIPTION, cmd_sid_flow_connect,
 		      CMD_SID_FLOW_CONNECT_ARG_REQUIRED, CMD_SID_FLOW_CONNECT_ARG_OPTIONAL),
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_CLI_SENSOR_COMMANDS)
+	SHELL_CMD_ARG(sensor, NULL, CMD_SID_FLOW_SENSOR_DESCRIPTION, cmd_sid_flow_sensor,
+		      CMD_SID_FLOW_SENSOR_ARG_REQUIRED, CMD_SID_FLOW_SENSOR_ARG_OPTIONAL),
+	SHELL_CMD_ARG(power, NULL, CMD_SID_FLOW_POWER_DESCRIPTION, cmd_sid_flow_power,
+		      CMD_SID_FLOW_POWER_ARG_REQUIRED, CMD_SID_FLOW_POWER_ARG_OPTIONAL),
+	SHELL_CMD_ARG(telemetry, NULL, CMD_SID_FLOW_TELEMETRY_DESCRIPTION,
+		      cmd_sid_flow_telemetry, CMD_SID_FLOW_TELEMETRY_ARG_REQUIRED,
+		      CMD_SID_FLOW_TELEMETRY_ARG_OPTIONAL),
+#endif
 	SHELL_SUBCMD_SET_END);
 
 SHELL_STATIC_SUBCMD_SET_CREATE(
@@ -112,6 +131,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      CMD_SID_STOP_ARG_OPTIONAL),
 	SHELL_CMD_ARG(send, NULL, CMD_SID_SEND_DESCRIPTION, cmd_sid_send, CMD_SID_SEND_ARG_REQUIRED,
 		      CMD_SID_SEND_ARG_OPTIONAL),
+	SHELL_CMD_ARG(shiphold, NULL, CMD_SID_SHIPHOLD_DESCRIPTION, cmd_sid_shiphold,
+		      CMD_SID_SHIPHOLD_ARG_REQUIRED, CMD_SID_SHIPHOLD_ARG_OPTIONAL),
+	SHELL_CMD_ARG(identity, NULL, CMD_SID_IDENTITY_DESCRIPTION, cmd_sid_identity,
+		      CMD_SID_IDENTITY_ARG_REQUIRED, CMD_SID_IDENTITY_ARG_OPTIONAL),
 	SHELL_CMD_ARG(factory_reset, NULL, CMD_SID_FACTORY_RESET_DESCRIPTION, cmd_sid_factory_reset,
 		      CMD_SID_FACTORY_RESET_ARG_REQUIRED, CMD_SID_FACTORY_RESET_ARG_OPTIONAL),
 	SHELL_CMD_ARG(get_mtu, NULL, CMD_SID_GET_MTU_DESCRIPTION, cmd_sid_get_mtu,
@@ -124,6 +147,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      CMD_SID_CONN_REQUEST_ARG_REQUIRED, CMD_SID_CONN_REQUEST_ARG_OPTIONAL),
 	SHELL_CMD_ARG(get_time, NULL, CMD_SID_GET_TIME_DESCRIPTION, cmd_sid_get_time,
 		      CMD_SID_GET_TIME_ARG_REQUIRED, CMD_SID_GET_TIME_ARG_OPTIONAL),
+	SHELL_CMD_ARG(radio_trim, NULL, CMD_SID_RADIO_TRIM_DESCRIPTION, cmd_sid_radio_trim,
+		      CMD_SID_RADIO_TRIM_ARG_REQUIRED, CMD_SID_RADIO_TRIM_ARG_OPTIONAL),
 	SHELL_CMD_ARG(set_dst_id, NULL, CMD_SID_SET_DST_ID_DESCRIPTION, cmd_sid_set_dst_id,
 		      CMD_SID_SET_DST_ID_ARG_REQUIRED, CMD_SID_SET_DST_ID_ARG_OPTIONAL),
 	SHELL_CMD_ARG(set_send_link, NULL, CMD_SID_SET_SEND_LINK_DESCRIPTION, cmd_sid_set_send_link,
@@ -191,31 +216,79 @@ static bool cli_parse_link_mask_opt(uint8_t arg, uint32_t *link_mask)
 }
 
 static bool cli_parse_hello_flow_target(const char *arg, uint32_t *link_mask,
-					uint32_t *send_link_mask)
+					uint32_t *send_link_mask, bool *allow_fallback)
 {
-	if (arg == NULL || link_mask == NULL || send_link_mask == NULL) {
+	if (arg == NULL || link_mask == NULL || send_link_mask == NULL ||
+	    allow_fallback == NULL) {
 		return false;
+	}
+
+	if ((strcmp(arg, "auto") == 0) || (strcmp(arg, "any") == 0)) {
+		*link_mask = 0U;
+		*send_link_mask = SID_LINK_TYPE_ANY;
+		*allow_fallback = true;
+		return true;
 	}
 
 	if (strcmp(arg, "ble") == 0) {
 		*link_mask = SID_LINK_TYPE_1;
 		*send_link_mask = SID_LINK_TYPE_1;
+		*allow_fallback = true;
 		return true;
 	}
 
 	if (strcmp(arg, "fsk") == 0) {
 		*link_mask = SID_LINK_TYPE_2;
 		*send_link_mask = SID_LINK_TYPE_2;
+		*allow_fallback = true;
 		return true;
 	}
 
 	if (strcmp(arg, "lora") == 0) {
 		*link_mask = SID_LINK_TYPE_1 | SID_LINK_TYPE_3;
 		*send_link_mask = SID_LINK_TYPE_3;
+		*allow_fallback = true;
+		return true;
+	}
+
+	if ((strcmp(arg, "strict-ble") == 0) || (strcmp(arg, "ble-only") == 0)) {
+		*link_mask = SID_LINK_TYPE_1;
+		*send_link_mask = SID_LINK_TYPE_1;
+		*allow_fallback = false;
+		return true;
+	}
+
+	if ((strcmp(arg, "strict-fsk") == 0) || (strcmp(arg, "fsk-only") == 0)) {
+		*link_mask = SID_LINK_TYPE_2;
+		*send_link_mask = SID_LINK_TYPE_2;
+		*allow_fallback = false;
+		return true;
+	}
+
+	if ((strcmp(arg, "strict-lora") == 0) || (strcmp(arg, "lora-only") == 0)) {
+		*link_mask = SID_LINK_TYPE_1 | SID_LINK_TYPE_3;
+		*send_link_mask = SID_LINK_TYPE_3;
+		*allow_fallback = false;
 		return true;
 	}
 
 	return false;
+}
+
+static const char *cli_flow_target_name(uint32_t link_mask)
+{
+	switch (link_mask) {
+	case SID_LINK_TYPE_1:
+		return "BLE";
+	case SID_LINK_TYPE_2:
+		return "FSK";
+	case SID_LINK_TYPE_3:
+		return "LoRa";
+	case SID_LINK_TYPE_ANY:
+		return "auto";
+	default:
+		return "unknown";
+	}
 }
 
 static int sid_option_get_window_separation_ms(uint32_t value,
@@ -420,15 +493,46 @@ int cmd_sid_stop(const struct shell *shell, int32_t argc, const char **argv)
 	return cmd_sid_simple_param(dut_event_stop, &link_type);
 }
 
+int cmd_sid_shiphold(const struct shell *shell, int32_t argc, const char **argv)
+{
+	ARG_UNUSED(argv);
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_SHIPHOLD_ARG_REQUIRED, CMD_SID_SHIPHOLD_ARG_OPTIONAL);
+
+	int err = app_cli_ui_request_ship_mode();
+
+	if (err) {
+		shell_error(shell, "nPM1300 ship mode request failed: %d", err);
+		return err;
+	}
+
+	shell_print(shell, "entering nPM1300 ship mode");
+	return 0;
+}
+
+int cmd_sid_identity(const struct shell *shell, int32_t argc, const char **argv)
+{
+	ARG_UNUSED(argv);
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_IDENTITY_ARG_REQUIRED,
+			     CMD_SID_IDENTITY_ARG_OPTIONAL);
+
+	return app_cli_ui_print_identity(shell);
+}
+
 int cmd_sid_flow_set(const struct shell *shell, int32_t argc, const char **argv)
 {
 	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_SET_ARG_REQUIRED, CMD_SID_FLOW_SET_ARG_OPTIONAL);
 
 	uint32_t link_mask = 0;
 	uint32_t send_link_mask = 0;
+	bool allow_fallback = false;
 
-	if (!cli_parse_hello_flow_target(argv[1], &link_mask, &send_link_mask)) {
+	if (!cli_parse_hello_flow_target(argv[1], &link_mask, &send_link_mask,
+					 &allow_fallback)) {
 		shell_error(shell, "invalid flow target, use ble, fsk, or lora");
+		return -EINVAL;
+	}
+	if (send_link_mask == SID_LINK_TYPE_ANY) {
+		shell_error(shell, "flow set requires ble, fsk, or lora");
 		return -EINVAL;
 	}
 
@@ -465,6 +569,271 @@ static void free_sid_send_event_ctx(void *ctx)
 	}
 	sid_hal_free(send);
 }
+
+static int cmd_sid_flow_queue_send(const struct shell *shell, uint32_t target_link_mask,
+				   sidewalk_msg_t *send, bool allow_fallback)
+{
+	dut_flow_send_ctx_t *flow_send;
+	size_t send_size;
+	const char *send_link_name;
+	int err;
+
+	if (send == NULL) {
+		return -EINVAL;
+	}
+
+	flow_send = sid_hal_malloc(sizeof(*flow_send));
+	if (flow_send == NULL) {
+		free_sid_send_event_ctx(send);
+		return -ENOMEM;
+	}
+
+	cli_cfg.send_link_type = send->desc.link_type;
+	send_size = send->msg.size;
+	send_link_name = cli_flow_target_name(send->desc.link_type);
+	memset(flow_send, 0, sizeof(*flow_send));
+	flow_send->target_link_mask = target_link_mask;
+	flow_send->allow_fallback = allow_fallback;
+	memcpy(&flow_send->send, send, sizeof(*send));
+	sid_hal_free(send);
+
+	err = sidewalk_event_send(dut_event_flow_send, flow_send, NULL);
+	if (err) {
+		dut_flow_send_ctx_free(flow_send);
+		return -ENOMSG;
+	}
+
+	shell_info(shell, "queued %u byte payload for %s", (unsigned int)send_size,
+		   send_link_name);
+	return 0;
+}
+
+static int cmd_sid_alloc_payload_send(const uint8_t *payload, size_t payload_size,
+				      enum sid_link_type link_type, sidewalk_msg_t **out_send)
+{
+	sidewalk_msg_t *send;
+
+	if ((payload == NULL) || (payload_size == 0) || (out_send == NULL)) {
+		return -EINVAL;
+	}
+
+	*out_send = NULL;
+
+	send = sid_hal_malloc(sizeof(*send));
+	if (send == NULL) {
+		return -ENOMEM;
+	}
+
+	memset(send, 0, sizeof(*send));
+	send->msg.data = sid_hal_malloc(payload_size);
+	if (send->msg.data == NULL) {
+		sid_hal_free(send);
+		return -ENOMEM;
+	}
+
+	memcpy(send->msg.data, payload, payload_size);
+	send->msg.size = payload_size;
+	send->desc.type = SID_MSG_TYPE_NOTIFY;
+	send->desc.link_type = link_type;
+	send->desc.link_mode = SID_LINK_MODE_CLOUD;
+	send->desc.msg_desc_attr.tx_attr.ttl_in_seconds = CLI_SID_MSG_TTL_MAX;
+	send->desc.msg_desc_attr.tx_attr.num_retries = CLI_SID_MSG_RETRIES_MAX;
+	send->desc.msg_desc_attr.tx_attr.request_ack = true;
+
+	*out_send = send;
+	return 0;
+}
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_CLI_SENSOR_COMMANDS)
+static const char *json_int_or_null(bool valid, int32_t value, char *buffer, size_t buffer_size)
+{
+	if (!valid) {
+		return "null";
+	}
+
+	(void)snprintk(buffer, buffer_size, "%d", value);
+	return buffer;
+}
+
+static const char *json_bool_or_null(bool valid, bool value)
+{
+	if (!valid) {
+		return "null";
+	}
+
+	return value ? "true" : "false";
+}
+
+static int cli_format_sensor_payload(const struct app_sensor_sample *sample, uint8_t *payload,
+				     size_t payload_size)
+{
+	char t_buf[12];
+	char rh_buf[12];
+	char ax_buf[12];
+	char ay_buf[12];
+	char az_buf[12];
+
+	int len = snprintk((char *)payload, payload_size,
+			   "{\"kind\":\"sensor\",\"t_mc\":%s,\"rh_mpc\":%s,"
+			   "\"ax_mms2\":%s,\"ay_mms2\":%s,\"az_mms2\":%s,\"wake\":%s}",
+			   json_int_or_null(sample->temperature_valid,
+					    sample->temperature_millicelsius, t_buf, sizeof(t_buf)),
+			   json_int_or_null(sample->humidity_valid,
+					    (int32_t)sample->humidity_millipercent, rh_buf,
+					    sizeof(rh_buf)),
+			   json_int_or_null(sample->accel_valid, sample->accel_milli_ms2[0],
+					    ax_buf, sizeof(ax_buf)),
+			   json_int_or_null(sample->accel_valid, sample->accel_milli_ms2[1],
+					    ay_buf, sizeof(ay_buf)),
+			   json_int_or_null(sample->accel_valid, sample->accel_milli_ms2[2],
+					    az_buf, sizeof(az_buf)),
+			   sample->accel_wake ? "true" : "false");
+
+	if ((len < 0) || (len >= (int)payload_size)) {
+		return -EMSGSIZE;
+	}
+
+	return len;
+}
+
+static int cli_format_power_payload(const struct app_sensor_sample *sample, uint8_t *payload,
+				    size_t payload_size)
+{
+	char bat_mv_buf[12];
+	char ibat_ua_buf[12];
+	char bat_pct_buf[8];
+	char chg_buf[12];
+	char err_buf[12];
+	char vbus_status_buf[12];
+
+	int len = snprintk((char *)payload, payload_size,
+			   "{\"kind\":\"power\",\"bat_mv\":%s,\"ibat_ua\":%s,"
+			   "\"bat_pct\":%s,\"vbus\":%s,\"chg\":%s,\"err\":%s,"
+			   "\"vbus_status\":%s}",
+			   json_int_or_null(sample->pmic_valid, sample->battery_millivolts,
+					    bat_mv_buf, sizeof(bat_mv_buf)),
+			   json_int_or_null(sample->pmic_valid, sample->battery_current_microamps,
+					    ibat_ua_buf, sizeof(ibat_ua_buf)),
+			   json_int_or_null(sample->pmic_valid, sample->battery_level_percent,
+					    bat_pct_buf, sizeof(bat_pct_buf)),
+			   json_bool_or_null(sample->pmic_valid, sample->vbus_present),
+			   json_int_or_null(sample->pmic_valid, sample->charger_status, chg_buf,
+					    sizeof(chg_buf)),
+			   json_int_or_null(sample->pmic_valid, sample->charger_error, err_buf,
+					    sizeof(err_buf)),
+			   json_int_or_null(sample->pmic_valid, sample->vbus_status,
+					    vbus_status_buf, sizeof(vbus_status_buf)));
+
+	if ((len < 0) || (len >= (int)payload_size)) {
+		return -EMSGSIZE;
+	}
+
+	return len;
+}
+
+static int cli_format_telemetry_payload(const struct app_sensor_sample *sample, uint8_t *payload,
+					size_t payload_size)
+{
+	char t_buf[12];
+	char rh_buf[12];
+	char ax_buf[12];
+	char ay_buf[12];
+	char az_buf[12];
+	char bat_mv_buf[12];
+	char ibat_ua_buf[12];
+	char bat_pct_buf[8];
+	char chg_buf[8];
+	char err_buf[8];
+
+	int len = snprintk((char *)payload, payload_size,
+			   "{\"t_mc\":%s,\"rh_mpc\":%s,\"ax_mms2\":%s,\"ay_mms2\":%s,"
+			   "\"az_mms2\":%s,\"bat_mv\":%s,\"ibat_ua\":%s,\"bat_pct\":%s,"
+			   "\"vbus\":%s,\"chg\":%s,\"err\":%s,\"wake\":%s}",
+			   json_int_or_null(sample->temperature_valid,
+					    sample->temperature_millicelsius, t_buf, sizeof(t_buf)),
+			   json_int_or_null(sample->humidity_valid,
+					    (int32_t)sample->humidity_millipercent, rh_buf,
+					    sizeof(rh_buf)),
+			   json_int_or_null(sample->accel_valid, sample->accel_milli_ms2[0],
+					    ax_buf, sizeof(ax_buf)),
+			   json_int_or_null(sample->accel_valid, sample->accel_milli_ms2[1],
+					    ay_buf, sizeof(ay_buf)),
+			   json_int_or_null(sample->accel_valid, sample->accel_milli_ms2[2],
+					    az_buf, sizeof(az_buf)),
+			   json_int_or_null(sample->pmic_valid, sample->battery_millivolts,
+					    bat_mv_buf, sizeof(bat_mv_buf)),
+			   json_int_or_null(sample->pmic_valid, sample->battery_current_microamps,
+					    ibat_ua_buf, sizeof(ibat_ua_buf)),
+			   json_int_or_null(sample->pmic_valid, sample->battery_level_percent,
+					    bat_pct_buf, sizeof(bat_pct_buf)),
+			   json_bool_or_null(sample->pmic_valid, sample->vbus_present),
+			   json_int_or_null(sample->pmic_valid, sample->charger_status, chg_buf,
+					    sizeof(chg_buf)),
+			   json_int_or_null(sample->pmic_valid, sample->charger_error, err_buf,
+					    sizeof(err_buf)),
+			   sample->accel_wake ? "true" : "false");
+
+	if ((len < 0) || (len >= (int)payload_size)) {
+		return -EMSGSIZE;
+	}
+
+	return len;
+}
+
+static int cmd_sid_flow_sample_send(const struct shell *shell, const char *target,
+				    const char *kind)
+{
+	uint32_t target_link_mask = 0;
+	uint32_t send_link_mask = 0;
+	bool allow_fallback = false;
+	struct app_sensor_sample sample;
+	uint8_t payload[CLI_SENSOR_PAYLOAD_SIZE_MAX];
+	size_t payload_capacity = sizeof(payload);
+	sidewalk_msg_t *send = NULL;
+	int payload_size;
+	int err;
+
+	if (!cli_parse_hello_flow_target(target, &target_link_mask, &send_link_mask,
+					 &allow_fallback)) {
+		shell_error(shell, "invalid flow target");
+		return -EINVAL;
+	}
+
+	err = app_sensor_sample_get(&sample);
+	if (err) {
+		shell_error(shell, "sensor sample failed %d", err);
+		return err;
+	}
+
+	if (strcmp(kind, "sensor") == 0) {
+		payload_size = cli_format_sensor_payload(&sample, payload, payload_capacity);
+	} else if (strcmp(kind, "power") == 0) {
+		if (!sample.pmic_valid) {
+			shell_error(shell, "power sample unavailable");
+			return -ENODEV;
+		}
+		payload_capacity = CLI_POWER_PAYLOAD_SIZE_MAX;
+		payload_size = cli_format_power_payload(&sample, payload, payload_capacity);
+	} else {
+		payload_size = cli_format_telemetry_payload(&sample, payload, payload_capacity);
+	}
+
+	if (payload_size < 0) {
+		shell_error(shell, "%s payload format failed %d", kind, payload_size);
+		return payload_size;
+	}
+
+	err = cmd_sid_alloc_payload_send(payload, (size_t)payload_size,
+					 (enum sid_link_type)send_link_mask, &send);
+	if (err) {
+		shell_error(shell, "%s payload allocation failed %d", kind, err);
+		return err;
+	}
+
+	shell_info(shell, "%s payload: %s", kind, payload);
+	return cmd_sid_flow_queue_send(shell, target_link_mask, send, allow_fallback);
+}
+#endif
 
 static int cmd_sid_alloc_send(const struct shell *shell, int32_t argc, const char **argv,
 			      int32_t opt_start, enum sid_link_type default_link_type,
@@ -716,11 +1085,12 @@ int cmd_sid_flow_send(const struct shell *shell, int32_t argc, const char **argv
 
 	uint32_t target_link_mask = 0;
 	uint32_t send_link_mask = 0;
+	bool allow_fallback = false;
 	sidewalk_msg_t *send = NULL;
-	dut_flow_send_ctx_t *flow_send = NULL;
 
-	if (!cli_parse_hello_flow_target(argv[1], &target_link_mask, &send_link_mask)) {
-		shell_error(shell, "invalid flow target, use ble, fsk, or lora");
+	if (!cli_parse_hello_flow_target(argv[1], &target_link_mask, &send_link_mask,
+					 &allow_fallback)) {
+		shell_error(shell, "invalid flow target");
 		return -EINVAL;
 	}
 
@@ -730,27 +1100,34 @@ int cmd_sid_flow_send(const struct shell *shell, int32_t argc, const char **argv
 		return err;
 	}
 	send->desc.link_type = (enum sid_link_type)send_link_mask;
-	cli_cfg.send_link_type = send->desc.link_type;
-
-	flow_send = sid_hal_malloc(sizeof(*flow_send));
-	if (flow_send == NULL) {
-		free_sid_send_event_ctx(send);
-		return -ENOMEM;
-	}
-
-	memset(flow_send, 0, sizeof(*flow_send));
-	flow_send->target_link_mask = target_link_mask;
-	memcpy(&flow_send->send, send, sizeof(*send));
-	sid_hal_free(send);
-
-	err = sidewalk_event_send(dut_event_flow_send, flow_send, NULL);
-	if (err) {
-		dut_flow_send_ctx_free(flow_send);
-		return -ENOMSG;
-	}
-
-	return 0;
+	return cmd_sid_flow_queue_send(shell, target_link_mask, send, allow_fallback);
 }
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_CLI_SENSOR_COMMANDS)
+int cmd_sid_flow_sensor(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_SENSOR_ARG_REQUIRED,
+			     CMD_SID_FLOW_SENSOR_ARG_OPTIONAL);
+
+	return cmd_sid_flow_sample_send(shell, argv[1], "sensor");
+}
+
+int cmd_sid_flow_power(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_POWER_ARG_REQUIRED,
+			     CMD_SID_FLOW_POWER_ARG_OPTIONAL);
+
+	return cmd_sid_flow_sample_send(shell, argv[1], "power");
+}
+
+int cmd_sid_flow_telemetry(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_FLOW_TELEMETRY_ARG_REQUIRED,
+			     CMD_SID_FLOW_TELEMETRY_ARG_OPTIONAL);
+
+	return cmd_sid_flow_sample_send(shell, argv[1], "telemetry");
+}
+#endif
 
 int cmd_sid_flow_status(const struct shell *shell, int32_t argc, const char **argv)
 {
@@ -759,6 +1136,28 @@ int cmd_sid_flow_status(const struct shell *shell, int32_t argc, const char **ar
 			     CMD_SID_FLOW_STATUS_ARG_OPTIONAL);
 
 	return sidewalk_event_send(dut_event_flow_status, NULL, NULL);
+}
+
+int cmd_sid_radio_trim(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_SID_RADIO_TRIM_ARG_REQUIRED,
+			     CMD_SID_RADIO_TRIM_ARG_OPTIONAL);
+
+	uint32_t trim = UINT32_MAX;
+
+	if (argc > 1) {
+		char *end = NULL;
+		long trim_raw = strtol(argv[1], &end, 0);
+
+		if ((end == argv[1]) || (*end != '\0') || !IN_RANGE(trim_raw, 0, UINT16_MAX)) {
+			shell_error(shell, "invalid trim value");
+			return -EINVAL;
+		}
+
+		trim = (uint32_t)trim_raw;
+	}
+
+	return cmd_sid_simple_param(dut_event_radio_trim, &trim);
 }
 
 int cmd_sid_flow_cancel(const struct shell *shell, int32_t argc, const char **argv)

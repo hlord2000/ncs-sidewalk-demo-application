@@ -40,6 +40,9 @@ elseif(CONFIG_SID_END_DEVICE_DUT)
     target_sources(app PRIVATE
         src/cli/app.c
     )
+    target_sources_ifdef(CONFIG_SID_END_DEVICE_CLI_SENSOR_COMMANDS app PRIVATE
+        src/sensor_monitoring/app_sensor.c
+    )
 else()
     target_sources(app PRIVATE
         src/hello/app.c

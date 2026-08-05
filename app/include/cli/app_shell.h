@@ -77,6 +77,14 @@
 	"	<retry> - number of retry. 0 ~ 255\n"                                                                                                                                                      \
 	"	<ttl> - total seconds the stack holds the message in its queue. 0 ~ 65535"
 
+#define CMD_SID_SHIPHOLD_DESCRIPTION                                                                 \
+	"\n"                                                                                         \
+	"enter nPM1300 Ship mode using the PMIC shiphold path"
+
+#define CMD_SID_IDENTITY_DESCRIPTION                                                               \
+	"\n"                                                                                       \
+	"print the Sidewalk manufacturing serial and advertised identity fingerprint"
+
 #define CMD_SID_FACTORY_RESET_DESCRIPTION                                                          \
 	"\n"                                                                                       \
 	"factory reset the board, deleting all registration status. This calls the sid_set_factory_reset() API."
@@ -174,6 +182,10 @@
 	"   0 - GPS time\n"                                                                        \
 	"This calls the sid_get_time() API."
 
+#define CMD_SID_RADIO_TRIM_DESCRIPTION                                                            \
+	"[value]\n"                                                                                 \
+	"Get or set the SX126x crystal trim capacitor value, packed as XTA:XTB."
+
 #define CMD_SID_SET_DST_ID_DESCRIPTION                                                             \
 	"<id>\n"                                                                                   \
 	"set message destination ID. This calls the sid_set_msg_dest_id() API."
@@ -195,12 +207,13 @@
 #define CMD_SID_SDK_CONFIG_DESCRIPTION "Print sid sdk config"
 
 #define CMD_SID_FLOW_DESCRIPTION                                                                  \
-	"<set|switch|send|status|cancel|connect>\n"                                             \
+	"<set|switch|send|sensor|power|telemetry|status|cancel|connect>\n"                      \
 	"Hello-sample style flow helpers for the DUT shell.\n"                                  \
 	"`set` uses the same BLE -> FSK -> BLE+LoRa states as the hello sample.\n"              \
 	"For faster LoRa bring-up, the DUT keeps one Sidewalk session alive and reuses cached\n" \
 	"time when possible.\n"                                                                  \
 	"`send` queues a message, brings up the requested transport, and sends when ready.\n"    \
+	"`sensor`, `power`, and `telemetry` read local board data and queue JSON payloads.\n"    \
 	"`switch` simulates one press of the hello link-switch button.\n"                        \
 	"`connect` issues the same BLE connection request as hello button 2."
 
@@ -214,10 +227,12 @@
 	"Advance one hello-flow step: BLE -> FSK -> BLE+LoRa -> BLE.\n"                         \
 	"If Sidewalk is not running yet, the first switch starts with FSK."
 
-#define CMD_SID_FLOW_SEND_DESCRIPTION                                                             \
-	"<ble|fsk|lora> [sid send options] <payload>\n"                                          \
+#define CMD_SID_FLOW_SEND_DESCRIPTION                                                              \
+	"<auto|ble|fsk|lora|strict-ble|strict-fsk|strict-lora> [sid send options] <payload>\n" \
 	"Queue a send for the selected transport. Uses the same payload/options as `sid send`,\n" \
-	"but brings the selected hello-flow state up first and keeps retrying until ready.\n"     \
+	"but brings the selected hello-flow state up first with bounded retries.\n"              \
+	"`auto`, `ble`, `fsk`, and `lora` fall back when the preferred link is unavailable.\n"   \
+	"`strict-*` keeps the send pinned to one transport for validation.\n"                    \
 	"Use plain text payloads directly, or use `-r` only with a hex payload."
 
 #define CMD_SID_FLOW_STATUS_DESCRIPTION                                                           \
@@ -232,6 +247,21 @@
 	"\n"                                                                                      \
 	"Request BLE connection using the same hello-sample connect event."
 
+#define CMD_SID_FLOW_SENSOR_DESCRIPTION                                                            \
+	"<auto|ble|fsk|lora|strict-ble|strict-fsk|strict-lora>\n"                              \
+	"Read environmental and motion sensors, then send a compact JSON payload.\n"             \
+	"Non-strict targets fall back when the preferred link is unavailable."
+
+#define CMD_SID_FLOW_POWER_DESCRIPTION                                                             \
+	"<auto|ble|fsk|lora|strict-ble|strict-fsk|strict-lora>\n"                              \
+	"Read PMIC power state, then send a compact JSON payload.\n"                             \
+	"Non-strict targets fall back when the preferred link is unavailable."
+
+#define CMD_SID_FLOW_TELEMETRY_DESCRIPTION                                                         \
+	"<auto|ble|fsk|lora|strict-ble|strict-fsk|strict-lora>\n"                              \
+	"Read sensors and PMIC power state, then send one compact JSON payload.\n"               \
+	"Non-strict targets fall back when the preferred link is unavailable."
+
 #define CMD_NORDIC_DFU_ARG_REQUIRED 1
 #define CMD_NORDIC_DFU_ARG_OPTIONAL 0
 
@@ -245,6 +275,8 @@
 #define CMD_SID_STOP_ARG_OPTIONAL 1
 #define CMD_SID_SEND_ARG_REQUIRED 2
 #define CMD_SID_SEND_ARG_OPTIONAL 13
+#define CMD_SID_SHIPHOLD_ARG_REQUIRED 1
+#define CMD_SID_SHIPHOLD_ARG_OPTIONAL 0
 #define CMD_SID_FACTORY_RESET_ARG_REQUIRED 1
 #define CMD_SID_FACTORY_RESET_ARG_OPTIONAL 0
 #define CMD_SID_GET_MTU_ARG_REQUIRED 2
@@ -273,6 +305,8 @@
 #define CMD_SID_CONN_REQUEST_ARG_OPTIONAL 0
 #define CMD_SID_GET_TIME_ARG_REQUIRED 2
 #define CMD_SID_GET_TIME_ARG_OPTIONAL 0
+#define CMD_SID_RADIO_TRIM_ARG_REQUIRED 1
+#define CMD_SID_RADIO_TRIM_ARG_OPTIONAL 1
 #define CMD_SID_SET_DST_ID_ARG_REQUIRED 2
 #define CMD_SID_SET_DST_ID_ARG_OPTIONAL 0
 #define CMD_SID_SET_SEND_LINK_ARG_REQUIRED 2
@@ -283,6 +317,8 @@
 #define CMD_SID_SDK_VERSION_DESCRIPTION_ARG_OPTIONAL 0
 #define CMD_SID_SDK_CONFIG_DESCRIPTION_ARG_REQUIRED 1
 #define CMD_SID_SDK_CONFIG_DESCRIPTION_ARG_OPTIONAL 0
+#define CMD_SID_IDENTITY_ARG_REQUIRED 1
+#define CMD_SID_IDENTITY_ARG_OPTIONAL 0
 #define CMD_SID_FLOW_ARG_REQUIRED 2
 #define CMD_SID_FLOW_ARG_OPTIONAL 0
 #define CMD_SID_FLOW_SET_ARG_REQUIRED 2
@@ -297,6 +333,12 @@
 #define CMD_SID_FLOW_CANCEL_ARG_OPTIONAL 0
 #define CMD_SID_FLOW_CONNECT_ARG_REQUIRED 1
 #define CMD_SID_FLOW_CONNECT_ARG_OPTIONAL 0
+#define CMD_SID_FLOW_SENSOR_ARG_REQUIRED 2
+#define CMD_SID_FLOW_SENSOR_ARG_OPTIONAL 0
+#define CMD_SID_FLOW_POWER_ARG_REQUIRED 2
+#define CMD_SID_FLOW_POWER_ARG_OPTIONAL 0
+#define CMD_SID_FLOW_TELEMETRY_ARG_REQUIRED 2
+#define CMD_SID_FLOW_TELEMETRY_ARG_OPTIONAL 0
 
 int cmd_nordic_dfu(const struct shell *shell, int32_t argc, const char **argv);
 
@@ -305,6 +347,8 @@ int cmd_sid_deinit(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_start(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_stop(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_send(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_shiphold(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_identity(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_factory_reset(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_get_mtu(const struct shell *shell, int32_t argc, const char **argv);
 
@@ -327,6 +371,7 @@ int cmd_sid_option_sid_id(const struct shell *shell, int32_t argc, const char **
 int cmd_sid_last_status(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_conn_request(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_get_time(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_radio_trim(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_set_dst_id(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_set_send_link(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_set_rsp_id(const struct shell *shell, int32_t argc, const char **argv);
@@ -338,6 +383,11 @@ int cmd_sid_flow_send(const struct shell *shell, int32_t argc, const char **argv
 int cmd_sid_flow_status(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_flow_cancel(const struct shell *shell, int32_t argc, const char **argv);
 int cmd_sid_flow_connect(const struct shell *shell, int32_t argc, const char **argv);
+#ifdef CONFIG_SID_END_DEVICE_CLI_SENSOR_COMMANDS
+int cmd_sid_flow_sensor(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_flow_power(const struct shell *shell, int32_t argc, const char **argv);
+int cmd_sid_flow_telemetry(const struct shell *shell, int32_t argc, const char **argv);
+#endif
 
 #ifdef CONFIG_SIDEWALK_TRACE_HEAP
 int cmd_sid_print_heap_stats(const struct shell *shell, int32_t argc, const char **argv);

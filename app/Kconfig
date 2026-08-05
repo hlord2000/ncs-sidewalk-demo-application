@@ -127,6 +127,15 @@ config SID_END_DEVICE_CLI_ALIVE_MAKRER
         Enable alive marker that periodically prints "alive" message to log.
         Useful to verify that application is running and not stuck.
 
+config SID_END_DEVICE_CLI_SENSOR_COMMANDS
+	bool "Sensor and power send shell commands"
+	depends on SENSOR
+	default y if SID_END_DEVICE_DUT
+	help
+	  Adds DUT shell commands that read local sensors and PMIC state,
+	  format compact JSON payloads, and send them through the Sidewalk
+	  hello-flow transport.
+
 endif # SID_END_DEVICE_CLI
 
 config SID_END_DEVICE_AUTO_START

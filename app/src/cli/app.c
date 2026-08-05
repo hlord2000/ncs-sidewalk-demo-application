@@ -9,6 +9,9 @@
 #include <app_ble_config.h>
 #include <cli/app_cli_ui.h>
 #include <cli/app_dut.h>
+#if defined(CONFIG_SID_END_DEVICE_CLI_SENSOR_COMMANDS)
+#include <sensor_monitoring/app_sensor.h>
+#endif
 #include <app_subGHz_config.h>
 #include <sid_hal_reset_ifc.h>
 #include <sid_hal_memory_ifc.h>
@@ -22,6 +25,17 @@ LOG_MODULE_REGISTER(app, CONFIG_SIDEWALK_LOG_LEVEL);
 
 static uint32_t persistent_link_mask;
 static sidewalk_ctx_t sid_ctx;
+
+static void on_sidewalk_platform_ready(sidewalk_ctx_t *sid, void *ctx)
+{
+	ARG_UNUSED(ctx);
+
+	int err = app_cli_ui_init(sid);
+
+	if (err) {
+		LOG_ERR("Failed to initialize CLI UI helpers (err %d)", err);
+	}
+}
 
 static void on_sidewalk_event(bool in_isr, void *context)
 {
@@ -192,13 +206,25 @@ void app_start(void)
 		return;
 	}
 
-	err = app_cli_ui_init(&sid_ctx);
+#if defined(CONFIG_SID_END_DEVICE_CLI_SENSOR_COMMANDS)
+	err = app_sensor_init(NULL);
 	if (err) {
-		LOG_ERR("Failed to initialize CLI UI helpers (err %d)", err);
+		LOG_WRN("Sensor command init failed %d", err);
 	}
+#endif
 
 	sidewalk_start(&sid_ctx);
-	sidewalk_event_send(sidewalk_event_platform_init, NULL, NULL);
+	err = sidewalk_event_send(sidewalk_event_platform_init, NULL, NULL);
+	if (err) {
+		LOG_ERR("Failed to queue Sidewalk platform initialization (err %d)", err);
+		return;
+	}
+
+	err = sidewalk_event_send(on_sidewalk_platform_ready, NULL, NULL);
+	if (err) {
+		LOG_ERR("Failed to queue CLI UI initialization (err %d)", err);
+		return;
+	}
 
 #if CONFIG_SID_END_DEVICE_CLI_ALIVE_MAKRER
 	while (true) {
