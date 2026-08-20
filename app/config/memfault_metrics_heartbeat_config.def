@@ -1,0 +1,25 @@
+/*
+ * Copyright (c) 2026
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+/* Application specific heartbeat metrics for the Sidewalk demo app.
+ * See https://docs.memfault.com/docs/embedded/metrics-api for details.
+ */
+
+/* Count of Sidewalk uplinks successfully handed to the SDK. */
+MEMFAULT_METRICS_KEY_DEFINE(sid_uplink_count, kMemfaultMetricType_Unsigned)
+
+/* Count of Sidewalk send errors reported through on_sidewalk_send_error(). */
+MEMFAULT_METRICS_KEY_DEFINE(sid_send_error_count, kMemfaultMetricType_Unsigned)
+
+/* Count of Sidewalk link status change notifications. */
+MEMFAULT_METRICS_KEY_DEFINE(sid_link_status_change_count, kMemfaultMetricType_Unsigned)
+
+/* Battery voltage at last sensor sample, in millivolts. */
+MEMFAULT_METRICS_KEY_DEFINE_WITH_RANGE(sid_battery_mv, kMemfaultMetricType_Unsigned, 0, 4300)
+
+/* Board temperature at last sensor sample, in millicelsius. */
+MEMFAULT_METRICS_KEY_DEFINE_WITH_RANGE(sid_temperature_millic, kMemfaultMetricType_Signed, -40000,
+					85000)

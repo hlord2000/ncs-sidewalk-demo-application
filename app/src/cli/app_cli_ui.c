@@ -16,6 +16,7 @@
 #include <zephyr/shell/shell_backend.h>
 
 #include <bt_app_callbacks.h>
+#include <cli/prov_status.h>
 #include <json_printer/sidTypes2str.h>
 #include <sid_api.h>
 #include <sid_error.h>
@@ -569,6 +570,7 @@ static void nus_connected(struct bt_conn *conn, uint8_t err)
 	(void)bt_conn_le_param_update(conn, &nus_conn_param);
 	LOG_INF("NUS shell connected");
 	app_cli_ui_notify_shell_connected();
+	prov_status_notify_nus_connected();
 }
 
 static void nus_disconnected(struct bt_conn *conn, uint8_t reason)

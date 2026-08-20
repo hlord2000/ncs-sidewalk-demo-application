@@ -57,11 +57,19 @@ else()
     )
 endif()
 
+target_sources_ifdef(CONFIG_SID_END_DEVICE_MEMFAULT app PRIVATE
+    src/memfault/app_memfault.c
+)
+if(CONFIG_SID_END_DEVICE_MEMFAULT)
+    zephyr_include_directories(config)
+endif()
+
 if(CONFIG_SID_END_DEVICE_CLI)
     target_sources(app PRIVATE
         src/cli/app_cli_ui.c
         src/cli/app_dut.c
         src/cli/app_shell.c
+        src/cli/prov_status.c
     )
     target_sources_ifdef(CONFIG_SIDEWALK_FILE_TRANSFER_SHELL app PRIVATE
         src/cli/sbdt_shell.c

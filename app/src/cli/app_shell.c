@@ -32,6 +32,9 @@
 #if defined(CONFIG_SIDEWALK_DFU_SERVICE_BLE)
 #include <sidewalk_dfu/nordic_dfu.h>
 #endif
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT) && defined(CONFIG_SHELL)
+#include <memfault/app_memfault.h>
+#endif
 
 #include <cli/sbdt_shell_events.h>
 
@@ -170,6 +173,101 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 
 // command, subcommands, help, handler
 SHELL_CMD_REGISTER(sid, &sub_services, "sidewalk testing CLI", NULL);
+
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT) && defined(CONFIG_SHELL)
+
+#define CMD_MFLT_INFO_DESCRIPTION                                                                  \
+	"\n"                                                                                       \
+	"print the Memfault device serial, software type/version, hardware version, and whether "  \
+	"chunk data is currently queued"
+#define CMD_MFLT_INFO_ARG_REQUIRED 1
+#define CMD_MFLT_INFO_ARG_OPTIONAL 0
+
+#define CMD_MFLT_DRAIN_DESCRIPTION                                                                 \
+	"\n"                                                                                       \
+	"force an immediate Memfault chunk drain cycle on the app TX thread"
+#define CMD_MFLT_DRAIN_ARG_REQUIRED 1
+#define CMD_MFLT_DRAIN_ARG_OPTIONAL 0
+
+#define CMD_MFLT_HEARTBEAT_DESCRIPTION                                                             \
+	"\n"                                                                                       \
+	"force an immediate Memfault heartbeat metrics collection"
+#define CMD_MFLT_HEARTBEAT_ARG_REQUIRED 1
+#define CMD_MFLT_HEARTBEAT_ARG_OPTIONAL 0
+
+#define CMD_MFLT_CRASH_DESCRIPTION                                                                 \
+	"<0,1>\n"                                                                                  \
+	"deliberately trigger a fault to demo reboot tracking, 0 is MEMFAULT_ASSERT(0), 1 is a "    \
+	"HardFault"
+#define CMD_MFLT_CRASH_ARG_REQUIRED 2
+#define CMD_MFLT_CRASH_ARG_OPTIONAL 0
+
+#define CMD_MFLT_REBOOT_DESCRIPTION                                                                \
+	"\n"                                                                                       \
+	"reboot the device, recorded by Memfault as a normal user initiated reset"
+#define CMD_MFLT_REBOOT_ARG_REQUIRED 1
+#define CMD_MFLT_REBOOT_ARG_OPTIONAL 0
+
+static int cmd_mflt_info(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_MFLT_INFO_ARG_REQUIRED, CMD_MFLT_INFO_ARG_OPTIONAL);
+
+	return app_memfault_shell_info(shell);
+}
+
+static int cmd_mflt_drain(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_MFLT_DRAIN_ARG_REQUIRED, CMD_MFLT_DRAIN_ARG_OPTIONAL);
+
+	return app_memfault_shell_drain(shell);
+}
+
+static int cmd_mflt_heartbeat(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_MFLT_HEARTBEAT_ARG_REQUIRED, CMD_MFLT_HEARTBEAT_ARG_OPTIONAL);
+
+	return app_memfault_shell_heartbeat(shell);
+}
+
+static int cmd_mflt_crash(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_MFLT_CRASH_ARG_REQUIRED, CMD_MFLT_CRASH_ARG_OPTIONAL);
+
+	char *end = NULL;
+	long crash_type = strtol(argv[1], &end, 0);
+
+	if (end == argv[1]) {
+		shell_error(shell, "Invalid argument [%s]", argv[1]);
+		return -EINVAL;
+	}
+
+	return app_memfault_shell_crash(shell, (int)crash_type);
+}
+
+static int cmd_mflt_reboot(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_MFLT_REBOOT_ARG_REQUIRED, CMD_MFLT_REBOOT_ARG_OPTIONAL);
+
+	return app_memfault_shell_reboot(shell);
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_mflt,
+	SHELL_CMD_ARG(info, NULL, CMD_MFLT_INFO_DESCRIPTION, cmd_mflt_info,
+		      CMD_MFLT_INFO_ARG_REQUIRED, CMD_MFLT_INFO_ARG_OPTIONAL),
+	SHELL_CMD_ARG(drain, NULL, CMD_MFLT_DRAIN_DESCRIPTION, cmd_mflt_drain,
+		      CMD_MFLT_DRAIN_ARG_REQUIRED, CMD_MFLT_DRAIN_ARG_OPTIONAL),
+	SHELL_CMD_ARG(heartbeat, NULL, CMD_MFLT_HEARTBEAT_DESCRIPTION, cmd_mflt_heartbeat,
+		      CMD_MFLT_HEARTBEAT_ARG_REQUIRED, CMD_MFLT_HEARTBEAT_ARG_OPTIONAL),
+	SHELL_CMD_ARG(crash, NULL, CMD_MFLT_CRASH_DESCRIPTION, cmd_mflt_crash,
+		      CMD_MFLT_CRASH_ARG_REQUIRED, CMD_MFLT_CRASH_ARG_OPTIONAL),
+	SHELL_CMD_ARG(reboot, NULL, CMD_MFLT_REBOOT_DESCRIPTION, cmd_mflt_reboot,
+		      CMD_MFLT_REBOOT_ARG_REQUIRED, CMD_MFLT_REBOOT_ARG_OPTIONAL),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_REGISTER(mflt, &sub_mflt, "Memfault demo commands", NULL);
+
+#endif /* CONFIG_SID_END_DEVICE_MEMFAULT && CONFIG_SHELL */
 
 static struct cli_config cli_cfg = {
 	.send_link_type = SID_LINK_TYPE_ANY,

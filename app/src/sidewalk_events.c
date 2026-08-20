@@ -32,6 +32,9 @@
 #include <sbdt/dfu_file_transfer.h>
 #include <zephyr/dfu/mcuboot.h>
 #endif /* CONFIG_SIDEWALK_FILE_TRANSFER_DFU */
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+#include <memfault/app_memfault.h>
+#endif
 
 LOG_MODULE_REGISTER(sidewalk_events, CONFIG_SIDEWALK_LOG_LEVEL);
 
@@ -88,6 +91,14 @@ void sidewalk_event_platform_init(sidewalk_ctx_t *sid, void *ctx)
 		LOG_ERR("SIZE: 0x%08x", APP_MFG_CFG_FLASH_SIZE);
 		return;
 	}
+
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+	/* The mfg store is only valid once sid_platform_init() has succeeded,
+	 * so seed the Memfault device id from the Sidewalk SMSN here rather
+	 * than earlier in boot.
+	 */
+	app_memfault_init();
+#endif
 
 #ifdef CONFIG_SIDEWALK_SUBGHZ_SUPPORT
 	int32_t err = 0;
@@ -202,6 +213,9 @@ void sidewalk_event_new_status(sidewalk_ctx_t *sid, void *ctx)
 	memcpy(&sid->last_status, p_status, sizeof(struct sid_status));
 #ifdef CONFIG_SID_END_DEVICE_CLI
 	dut_event_flow_on_status(sid);
+#endif
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+	app_memfault_metric_link_status_changed();
 #endif
 }
 void sidewalk_event_send_msg(sidewalk_ctx_t *sid, void *ctx)

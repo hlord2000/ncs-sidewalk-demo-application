@@ -35,6 +35,9 @@
 #ifdef CONFIG_SIDEWALK_FILE_TRANSFER_DFU
 #include <sbdt/dfu_file_transfer.h>
 #endif
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+#include <memfault/app_memfault.h>
+#endif
 
 #include <bt_app_callbacks.h>
 
@@ -163,6 +166,9 @@ static void on_sidewalk_msg_sent(const struct sid_msg_desc *msg_desc, void *cont
 #if defined(CONFIG_SID_END_DEVICE_CLI)
 	dut_flow_notify_msg_sent(msg_desc);
 #endif
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+	app_memfault_metric_uplink_sent();
+#endif
 }
 
 static void on_sidewalk_send_error(sid_error_t error, const struct sid_msg_desc *msg_desc,
@@ -175,6 +181,9 @@ static void on_sidewalk_send_error(sid_error_t error, const struct sid_msg_desc 
 #endif
 #if defined(CONFIG_SID_END_DEVICE_CLI)
 	dut_flow_notify_send_error(error, msg_desc);
+#endif
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+	app_memfault_metric_send_error();
 #endif
 }
 
@@ -197,6 +206,14 @@ static void on_sidewalk_status_changed(const struct sid_status *status, void *co
 		memcpy(new_status, status, sizeof(struct sid_status));
 	}
 	sidewalk_event_send(sidewalk_event_new_status, new_status, sid_hal_free);
+
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+	/* sid_get_mtu() is a sid_* SDK call, so it must run on the Sidewalk
+	 * thread. Queue it there and let app_memfault_drain() (app TX thread)
+	 * pick up the cached result.
+	 */
+	(void)sidewalk_event_send(sidewalk_event_mflt_mtu_query, NULL, NULL);
+#endif
 
 	int err = 0;
 	switch (status->state) {

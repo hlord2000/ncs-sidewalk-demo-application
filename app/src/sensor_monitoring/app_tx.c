@@ -9,6 +9,9 @@
 #include <sensor_monitoring/app_leds.h>
 #include <sensor_monitoring/app_sensor.h>
 #include <sidewalk.h>
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+#include <memfault/app_memfault.h>
+#endif
 #include <sid_demo_parser.h>
 #include <sid_pal_uptime_ifc.h>
 #include <sid_hal_memory_ifc.h>
@@ -73,6 +76,17 @@ static void button_timer_cb(struct k_timer *timer_id)
 	if (app_btn_pending_flag_get()) {
 		app_tx_event_send(APP_EVENT_NOTIFY_BUTTON);
 	}
+}
+#endif
+
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+static void mflt_drain_timer_cb(struct k_timer *timer_id);
+K_TIMER_DEFINE(mflt_drain_timer, mflt_drain_timer_cb, NULL);
+
+static void mflt_drain_timer_cb(struct k_timer *timer_id)
+{
+	ARG_UNUSED(timer_id);
+	app_tx_event_send(APP_EVENT_MFLT_DRAIN);
 }
 #endif
 
@@ -395,6 +409,8 @@ static void state_init(void *o)
 	case APP_EVENT_NOTIFY_BUTTON:
 	case APP_EVENT_RESP_LED_ON:
 	case APP_EVENT_RESP_LED_OFF:
+	case APP_EVENT_MFLT_DRAIN:
+		/* Not registered yet, nothing to send. */
 		break;
 	}
 }
@@ -459,6 +475,8 @@ static void state_notify_capability(void *o)
 		break;
 	case APP_EVENT_TIME_SYNC_SUCCESS:
 	case APP_EVENT_TIME_SYNC_FAIL:
+	case APP_EVENT_MFLT_DRAIN:
+		/* Not registered yet, nothing to send. */
 		break;
 	}
 }
@@ -556,6 +574,20 @@ static void state_notify_data(void *o)
 #endif
 			temp = APP_DUMMY_SENSOR_DATA;
 		}
+
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+		/* Feed the sample we already paid the I2C cost for to Memfault's
+		 * battery metrics cache instead of letting it sample sensors itself
+		 * from a timer/workqueue context.
+		 */
+		app_memfault_battery_sample_update(sensor_sample.pmic_valid,
+						   sensor_sample.battery_millivolts,
+						   sensor_sample.battery_level_percent,
+						   sensor_sample.vbus_present,
+						   sensor_sample.charger_status,
+						   sensor_sample.temperature_valid,
+						   sensor_sample.temperature_millicelsius);
+#endif
 
 		// Prepare message
 		struct sid_demo_action_notification notify_temp = {
@@ -656,6 +688,14 @@ static void state_notify_data(void *o)
 
 		LOG_INF("Response LED OFF send");
 	} break;
+	case APP_EVENT_MFLT_DRAIN:
+		/* Sidewalk is registered and time synced in this state, so it is
+		 * safe to send Memfault chunks as regular uplinks here.
+		 */
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+		app_memfault_drain();
+#endif
+		break;
 	case APP_EVENT_TIME_SYNC_FAIL:
 		smf_set_state(SMF_CTX(sm), &app_states[STATE_APP_NOTIFY_CAPABILITY]);
 	case APP_EVENT_TIME_SYNC_SUCCESS:
@@ -714,6 +754,11 @@ void app_tx_task(void *dummy1, void *dummy2, void *dummy3)
 #if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
 	k_timer_start(&button_timer, K_MSEC(APP_NOTIFY_BUTTON_PERIOD_MS),
 		      K_MSEC(APP_NOTIFY_BUTTON_PERIOD_MS));
+#endif
+
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+	k_timer_start(&mflt_drain_timer, K_SECONDS(CONFIG_SID_END_DEVICE_MEMFAULT_DRAIN_INTERVAL_S),
+		      K_SECONDS(CONFIG_SID_END_DEVICE_MEMFAULT_DRAIN_INTERVAL_S));
 #endif
 
 	while (1) {

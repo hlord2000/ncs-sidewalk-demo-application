@@ -61,9 +61,17 @@ endif #SID_END_DEVICE_SENSOR_MONITORING
 config SID_END_DEVICE_CLI
     bool "Enable Sidewalk CLI (DUT)"
     imply SHELL
+    select SIDEWALK_MFG_STORAGE_DIAGNOSTIC
     help
       Enables Sidewalk command line interface.
       The interface commands are compatilbe with former dut sample.
+
+      Selects SIDEWALK_MFG_STORAGE_DIAGNOSTIC because the prov commands write
+      credentials with sid_pal_mfg_store_write(), which is compiled as a no-op
+      without it. That symbol has no prompt, so it cannot be set from a .conf
+      file and has to be selected here. Selecting it directly also means
+      SIDEWALK_ON_DEV_CERT can stay off, which frees about 9.8 KB of SRAM
+      (kheap_cert_heap and cert_chain_buffer).
 
 if SID_END_DEVICE_CLI
 
@@ -137,6 +145,64 @@ config SID_END_DEVICE_CLI_SENSOR_COMMANDS
 	  hello-flow transport.
 
 endif # SID_END_DEVICE_CLI
+
+config SID_END_DEVICE_MEMFAULT
+    bool "Enable Memfault observability integration"
+    select MEMFAULT
+    select MEMFAULT_METRICS_BATTERY_ENABLE
+    help
+      Adds Memfault SDK integration on top of the sensor monitoring app:
+      reboot tracking, device-health metrics (battery, temperature,
+      Sidewalk send/link counters), and a transport that drains Memfault
+      chunks and sends them as Sidewalk uplinks.
+
+      Requires CONFIG_SID_END_DEVICE_SENSOR_MONITORING=y (chunk draining
+      reuses its app TX thread) and CONFIG_MEMFAULT_NCS_DEVICE_ID_RUNTIME=y
+      (device id is seeded from the Sidewalk SMSN at boot). Both are choice
+      members so they cannot be "select"-ed here; set them explicitly in
+      the overlay, see overlay-memfault.conf.
+
+if SID_END_DEVICE_MEMFAULT
+
+config SID_END_DEVICE_MEMFAULT_DRAIN_INTERVAL_S
+    int "Memfault chunk drain interval in seconds"
+    default 60
+    help
+      Period of the timer that queues a Memfault packetizer drain cycle
+      onto the Sidewalk app TX thread.
+
+config SID_END_DEVICE_MEMFAULT_DRAIN_MAX_CHUNKS
+    int "Maximum Memfault chunks drained per drain cycle"
+    default 4
+    help
+      Caps how many Memfault chunks are packetized and sent as Sidewalk
+      uplinks per drain cycle, so Memfault traffic cannot starve the
+      sensor telemetry path.
+
+# Coredumps are never drained over the radio (see
+# memfault_packetizer_set_active_sources() in app_memfault.c), so keep the
+# RAM backed coredump region small. Never enable
+# CONFIG_MEMFAULT_NCS_INTERNAL_FLASH_BACKED_COREDUMP: it uses nrfx_nvmc, and
+# nRF54L15 only has RRAMC, so it will not link.
+config MEMFAULT_RAM_BACKED_COREDUMP_SIZE
+    default 256
+
+config MEMFAULT_NCS_DEVICE_ID_MAX_LEN
+    default 64
+
+config MEMFAULT_SHELL
+    default n
+
+config MEMFAULT_NCS_STACK_METRICS
+    default n
+
+# Heap stats are only useful inside a coredump, which this build never
+# sends. Skip the 512 B pool and the k_malloc/k_free wrapping; RAM here is
+# too tight to spend on data nothing will read.
+config MEMFAULT_HEAP_STATS
+    default n
+
+endif # SID_END_DEVICE_MEMFAULT
 
 config SID_END_DEVICE_AUTO_START
     default y
