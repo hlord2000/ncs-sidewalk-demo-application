@@ -287,7 +287,13 @@ void app_memfault_metric_link_status_changed(void)
 
 bool app_memfault_chunk_pending(void)
 {
-	return atomic_get(&s_chunk_pending) != 0;
+	/*
+	 * Ask the packetizer, not the cached flag. s_chunk_pending only gets
+	 * written inside the drain loop, so reporting it here reads "no" whenever
+	 * a drain has not run yet, which is exactly when you want to know whether
+	 * data is queued.
+	 */
+	return memfault_packetizer_data_available();
 }
 
 void sidewalk_event_mflt_mtu_query(sidewalk_ctx_t *sid, void *ctx)

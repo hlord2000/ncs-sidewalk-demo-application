@@ -149,7 +149,6 @@ endif # SID_END_DEVICE_CLI
 config SID_END_DEVICE_MEMFAULT
     bool "Enable Memfault observability integration"
     select MEMFAULT
-    select MEMFAULT_METRICS_BATTERY_ENABLE
     help
       Adds Memfault SDK integration on top of the sensor monitoring app:
       reboot tracking, device-health metrics (battery, temperature,
@@ -163,6 +162,17 @@ config SID_END_DEVICE_MEMFAULT
       the overlay, see overlay-memfault.conf.
 
 if SID_END_DEVICE_MEMFAULT
+
+config SID_END_DEVICE_MEMFAULT_BATTERY_METRICS
+    bool "Report battery state of charge to Memfault"
+    default y if $(dt_nodelabel_enabled,npm1300_charger)
+    select MEMFAULT_METRICS_BATTERY_ENABLE
+    help
+      Reports battery_soc_pct and the battery discharge session metrics.
+      Needs a fuel gauge, so this defaults on only for boards with an
+      nPM1300. Boards without one, the XIAO among them, have no state of
+      charge to report, and Memfault logs "SOC invalid, dropping data" on
+      every heartbeat if this is enabled anyway.
 
 config SID_END_DEVICE_MEMFAULT_DRAIN_INTERVAL_S
     int "Memfault chunk drain interval in seconds"

@@ -173,6 +173,18 @@ static const struct bt_data nus_ad[] = {
 		sizeof(nus_identity_mfg_data)),
 };
 
+/*
+ * An unprovisioned device has no SMSN, so it has no identity fingerprint to
+ * advertise. It still has to be reachable over BLE, because that is how the web
+ * app writes credentials to it. Advertise the same name without the
+ * manufacturer-data element rather than refusing to advertise at all.
+ */
+static const struct bt_data nus_ad_no_identity[] = {
+	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_SID_END_DEVICE_NUS_DEVICE_NAME,
+		sizeof(CONFIG_SID_END_DEVICE_NUS_DEVICE_NAME) - 1),
+};
+
 static const struct bt_data nus_sd[] = {
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_NUS_VAL),
 };
@@ -508,11 +520,12 @@ static int nus_identity_init(void)
 static int nus_adv_start(void)
 {
 	if (!nus_identity_ready) {
-		int err = nus_identity_init();
-
-		if (err) {
-			return err;
-		}
+		/*
+		 * Retry rather than give up. In the sensor-monitoring variant this
+		 * runs before sid_platform_init() has parsed the mfg store, so the
+		 * SMSN is not readable yet even on a provisioned device.
+		 */
+		(void)nus_identity_init();
 	}
 
 	if (nus_adv == NULL) {
@@ -524,8 +537,11 @@ static int nus_adv_start(void)
 		}
 	}
 
-	int err = bt_le_ext_adv_set_data(nus_adv, nus_ad, ARRAY_SIZE(nus_ad), nus_sd,
-					 ARRAY_SIZE(nus_sd));
+	const struct bt_data *ad = nus_identity_ready ? nus_ad : nus_ad_no_identity;
+	const size_t ad_len =
+		nus_identity_ready ? ARRAY_SIZE(nus_ad) : ARRAY_SIZE(nus_ad_no_identity);
+
+	int err = bt_le_ext_adv_set_data(nus_adv, ad, ad_len, nus_sd, ARRAY_SIZE(nus_sd));
 
 	if (err) {
 		LOG_ERR("Failed to set NUS advertiser data (err %d)", err);
@@ -538,7 +554,8 @@ static int nus_adv_start(void)
 		return err;
 	}
 
-	LOG_INF("NUS shell advertising as %s", CONFIG_SID_END_DEVICE_NUS_DEVICE_NAME);
+	LOG_INF("NUS shell advertising as %s%s", CONFIG_SID_END_DEVICE_NUS_DEVICE_NAME,
+		nus_identity_ready ? "" : " (no identity fingerprint, device is unprovisioned)");
 	return 0;
 }
 
@@ -609,7 +626,9 @@ static int nus_shell_init(void)
 	int err = nus_identity_init();
 
 	if (err) {
-		return err;
+		LOG_WRN("Sidewalk identity unavailable (err %d). Bringing up the NUS shell "
+			"anyway so an unprovisioned device can be provisioned over BLE.",
+			err);
 	}
 
 	err = sid_ble_bt_enable(NULL);
@@ -750,6 +769,17 @@ static const struct shell *app_cli_ui_nus_shell(void)
 void app_cli_ui_report_status(bool registered, bool time_synced, uint32_t link_mask)
 {
 #if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+	if (!nus_identity_ready) {
+		/*
+		 * A status change means sid_platform_init() has run, so the mfg store
+		 * is parsed and a provisioned device can now read its SMSN. Restart
+		 * the advertiser to publish the identity fingerprint it could not read
+		 * at boot. Runs before the shell check below because this matters
+		 * whether or not a client is currently connected.
+		 */
+		(void)nus_adv_start();
+	}
+
 	const struct shell *sh = app_cli_ui_nus_shell();
 
 	if (sh == NULL) {
