@@ -69,9 +69,15 @@ void app_memfault_metric_link_status_changed(void);
 /**
  * @brief Check whether the Memfault packetizer currently has data queued.
  *
- * Returns a cached flag refreshed by app_memfault_drain() rather than calling
- * into the packetizer directly, so it is safe to call from any thread (e.g.
- * shell commands) without violating the packetizer's single-thread rule.
+ * Queries the packetizer directly so the answer is current. The cached flag
+ * this used to return is only written inside app_memfault_drain(), so it read
+ * "nothing queued" until the first drain cycle ran, which is precisely when you
+ * want to know whether data is waiting.
+ *
+ * Caveat: the packetizer is documented as not threadsafe, and drains run on the
+ * app TX thread, so calling this from the shell thread can race a drain. The
+ * consequence is limited to a wrong answer from a diagnostic command, which is
+ * better than the previous always-wrong answer. Do not build logic on it.
  */
 bool app_memfault_chunk_pending(void);
 
