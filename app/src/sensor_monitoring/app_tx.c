@@ -485,7 +485,18 @@ static void state_notify_capability(void *o)
 	case APP_EVENT_TIME_SYNC_SUCCESS:
 	case APP_EVENT_TIME_SYNC_FAIL:
 	case APP_EVENT_MFLT_DRAIN:
-		/* Not registered yet, nothing to send. */
+		/*
+		 * This state is entered on APP_EVENT_TIME_SYNC_SUCCESS, so the
+		 * device is registered and time synced and can send. Drain here
+		 * rather than waiting for STATE_APP_NOTIFY_DATA, which is only
+		 * reached once the cloud answers the sensor demo capability
+		 * message (app_rx.c emits APP_EVENT_CAPABILITY_SUCCESS). Device
+		 * health data should not be gated behind an unrelated protocol
+		 * handshake, least of all on a board with no sensors to report.
+		 */
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+		app_memfault_drain();
+#endif
 		break;
 	case APP_EVENT_MFLT_EXPORT:
 		/* Export needs no link, so it runs here too. An unregistered
