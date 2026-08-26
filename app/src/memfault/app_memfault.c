@@ -44,6 +44,12 @@ LOG_MODULE_REGISTER(app_memfault, CONFIG_SIDEWALK_LOG_LEVEL);
 #define APP_MEMFAULT_CHUNK_TAG 0xC0
 #define APP_MEMFAULT_CHUNK_HDR_SIZE 2
 #define APP_MEMFAULT_CHUNK_PAYLOAD_MAX 96
+/*
+ * Used when sid_get_mtu() has not answered yet. 19 bytes is the smallest
+ * Sidewalk BLE payload, so this is safe on any link and still leaves 17 bytes
+ * for chunk data after the 2 byte header, above MEMFAULT_PACKETIZER_MIN_BUF_LEN.
+ */
+#define APP_MEMFAULT_CHUNK_FALLBACK_PAYLOAD 19
 #define APP_MEMFAULT_CHUNK_BUF_SIZE (APP_MEMFAULT_CHUNK_HDR_SIZE + APP_MEMFAULT_CHUNK_PAYLOAD_MAX)
 
 #define APP_MEMFAULT_SID_MSG_TTL_S 60
@@ -217,11 +223,21 @@ void app_memfault_export_chunk(void)
 void app_memfault_drain(void)
 {
 	uint32_t mtu = (uint32_t)atomic_get(&s_cached_mtu);
-	uint32_t budget = 0;
+	uint32_t budget;
 
 	if (mtu > APP_MEMFAULT_CHUNK_HDR_SIZE) {
 		budget = MIN(mtu - APP_MEMFAULT_CHUNK_HDR_SIZE,
 			     (uint32_t)APP_MEMFAULT_CHUNK_PAYLOAD_MAX);
+	} else {
+		/*
+		 * No MTU cached yet. Do not refuse to send: a smaller chunk still
+		 * carries data and the packetizer splits records to fit whatever it
+		 * is given. Falling back to the Sidewalk BLE minimum keeps device
+		 * health flowing on a link whose MTU could not be read, which is
+		 * exactly when that data is worth having.
+		 */
+		budget = APP_MEMFAULT_CHUNK_FALLBACK_PAYLOAD;
+		LOG_DBG("Memfault chunk MTU unknown, using %u byte fallback budget", budget);
 	}
 
 	if (budget < (MEMFAULT_PACKETIZER_MIN_BUF_LEN + APP_MEMFAULT_CHUNK_HDR_SIZE)) {
@@ -353,15 +369,27 @@ void sidewalk_event_mflt_mtu_query(sidewalk_ctx_t *sid, void *ctx)
 		return;
 	}
 
-	size_t mtu = 0;
-	sid_error_t e = sid_get_mtu(sid->handle, SID_LINK_TYPE_ANY, &mtu);
+	/*
+	 * sid_get_mtu() wants one concrete link, not SID_LINK_TYPE_ANY, which it
+	 * rejects. Ask each link in turn and keep the first answer. Logged at
+	 * warning level because a silent failure here left the drain with a zero
+	 * budget and no data ever left the device.
+	 */
+	static const uint32_t links[] = { SID_LINK_TYPE_1, SID_LINK_TYPE_2, SID_LINK_TYPE_3 };
 
-	if (e != SID_ERROR_NONE) {
-		LOG_DBG("Memfault mtu query failed %d", (int)e);
-		return;
+	for (size_t i = 0; i < ARRAY_SIZE(links); i++) {
+		size_t mtu = 0;
+		sid_error_t e = sid_get_mtu(sid->handle, links[i], &mtu);
+
+		if (e == SID_ERROR_NONE && mtu > 0) {
+			atomic_set(&s_cached_mtu, (atomic_val_t)mtu);
+			LOG_INF("Memfault chunk MTU %u from link type %u", (unsigned int)mtu,
+				(unsigned int)links[i]);
+			return;
+		}
 	}
 
-	atomic_set(&s_cached_mtu, (atomic_val_t)mtu);
+	LOG_WRN("Memfault could not read an MTU from any link; drain will use its fallback");
 }
 
 #if defined(CONFIG_SHELL)
