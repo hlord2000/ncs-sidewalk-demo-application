@@ -15,6 +15,7 @@
 
 #if defined(CONFIG_SHELL)
 #include <zephyr/shell/shell.h>
+#include <zephyr/sys/base64.h>
 #endif
 #if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
 #include <zephyr/shell/shell_backend.h>
@@ -164,6 +165,54 @@ static void app_memfault_report_chunk_event(uint8_t seq, size_t len, bool pendin
 		    (unsigned int)seq, (unsigned int)len, pending ? "true" : "false");
 }
 #endif
+
+/*
+ * Base64 of the largest chunk we ask for, plus the NUL that base64_encode
+ * writes. Kept static because the app TX thread stack is 4096 bytes.
+ */
+#define APP_MEMFAULT_EXPORT_B64_LEN (((APP_MEMFAULT_CHUNK_PAYLOAD_MAX + 2) / 3) * 4 + 1)
+static uint8_t s_export_chunk[APP_MEMFAULT_CHUNK_PAYLOAD_MAX];
+static char s_export_b64[APP_MEMFAULT_EXPORT_B64_LEN];
+
+void app_memfault_export_chunk(void)
+{
+	if (!memfault_packetizer_data_available()) {
+		LOG_INF("MFLT_CHUNK: none");
+		return;
+	}
+
+	size_t chunk_len = sizeof(s_export_chunk);
+
+	if (!memfault_packetizer_get_chunk(s_export_chunk, &chunk_len) || chunk_len == 0) {
+		LOG_WRN("Memfault export found no chunk to read");
+		return;
+	}
+
+	size_t written = 0;
+	int err = base64_encode(s_export_b64, sizeof(s_export_b64), &written, s_export_chunk,
+				chunk_len);
+
+	if (err) {
+		LOG_ERR("Memfault chunk base64 encode failed %d (chunk %u bytes)", err,
+			(unsigned int)chunk_len);
+		return;
+	}
+
+	/*
+	 * Print on the log backend (UART) and, when a client is attached, the NUS
+	 * shell, so the chunk can be collected over either transport. The prefix
+	 * is what a host script greps for.
+	 */
+	LOG_INF("MFLT_CHUNK:%s", s_export_b64);
+
+#if defined(CONFIG_SID_END_DEVICE_NUS_SHELL)
+	const struct shell *sh = shell_backend_get_by_name("shell_bt_nus");
+
+	if (sh != NULL) {
+		shell_print(sh, "MFLT_CHUNK:%s", s_export_b64);
+	}
+#endif
+}
 
 void app_memfault_drain(void)
 {
@@ -330,6 +379,19 @@ int app_memfault_shell_info(const struct shell *shell)
 	shell_print(shell, "Memfault chunk pending  : %s",
 		    app_memfault_chunk_pending() ? "yes" : "no");
 
+	return 0;
+}
+
+int app_memfault_shell_export(const struct shell *shell)
+{
+	int err = app_tx_event_send(APP_EVENT_MFLT_EXPORT);
+
+	if (err) {
+		shell_error(shell, "Failed to queue a Memfault chunk export (err %d)", err);
+		return err;
+	}
+
+	shell_print(shell, "Memfault chunk export queued");
 	return 0;
 }
 

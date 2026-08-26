@@ -20,9 +20,24 @@ _ncs_env_tools="$(cd "$(dirname "$_ncs_env_self")" && pwd)"
 # tools/ -> repo root -> west workspace root
 export ZEPHYR_BASE="$(cd "$_ncs_env_tools/../.." && pwd)/zephyr"
 
-: "${NCS_TOOLCHAIN_ROOT:=$HOME/ncs/toolchains}"
+# Toolchain bundles live in two places depending on how NCS was installed:
+#   ~/ncs/toolchains/<hash>/                          (nRF Connect for Desktop)
+#   /opt/ncs/toolchains/ncs-vX.Y.Z/toolchains/<hash>/ (system-wide install)
+# Set NCS_TOOLCHAIN to pick one explicitly. Otherwise the newest across both
+# roots wins. Match the Zephyr SDK to the NCS version this manifest pins:
+# NCS v3.0.0 wants Zephyr SDK 0.17.0, which the ncs-v3.2.1 bundle also ships.
 if [ -z "${NCS_TOOLCHAIN:-}" ]; then
-	NCS_TOOLCHAIN="$(ls -1dt "$NCS_TOOLCHAIN_ROOT"/*/ 2>/dev/null | head -1)"
+	for _ncs_root in ${NCS_TOOLCHAIN_ROOT:-} "$HOME/ncs/toolchains" /opt/ncs/toolchains/*/toolchains; do
+		[ -d "$_ncs_root" ] || continue
+		for _cand in $(ls -1dt "$_ncs_root"/*/ 2>/dev/null); do
+			if [ -x "${_cand%/}/usr/local/bin/west" ]; then
+				NCS_TOOLCHAIN="${_cand%/}"
+				break
+			fi
+		done
+		[ -n "${NCS_TOOLCHAIN:-}" ] && break
+	done
+	unset _ncs_root _cand
 fi
 NCS_TOOLCHAIN="${NCS_TOOLCHAIN%/}"
 

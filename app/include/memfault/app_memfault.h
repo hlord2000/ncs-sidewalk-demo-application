@@ -37,6 +37,19 @@ void app_memfault_init(void);
 void app_memfault_drain(void);
 
 /**
+ * @brief Pull one Memfault chunk and print it base64 on the shell.
+ *
+ * Same single-thread rule as app_memfault_drain(): only call this from the app
+ * TX thread, which is why "mflt export" queues APP_EVENT_MFLT_EXPORT instead of
+ * reaching into the packetizer from the shell thread.
+ *
+ * Unlike the drain, this runs regardless of Sidewalk link state, so chunks can
+ * be collected over BLE from a device that has never registered. Prints one
+ * line per chunk: MFLT_CHUNK:<base64>
+ */
+void app_memfault_export_chunk(void);
+
+/**
  * @brief Refresh the cached battery snapshot used to answer Memfault battery
  * metric queries.
  *
@@ -96,6 +109,7 @@ void sidewalk_event_mflt_mtu_query(sidewalk_ctx_t *sid, void *ctx);
  */
 int app_memfault_shell_info(const struct shell *shell);
 int app_memfault_shell_drain(const struct shell *shell);
+int app_memfault_shell_export(const struct shell *shell);
 int app_memfault_shell_heartbeat(const struct shell *shell);
 int app_memfault_shell_crash(const struct shell *shell, int crash_type);
 int app_memfault_shell_reboot(const struct shell *shell);

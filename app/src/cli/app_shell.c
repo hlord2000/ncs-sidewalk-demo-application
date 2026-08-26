@@ -183,6 +183,14 @@ SHELL_CMD_REGISTER(sid, &sub_services, "sidewalk testing CLI", NULL);
 #define CMD_MFLT_INFO_ARG_REQUIRED 1
 #define CMD_MFLT_INFO_ARG_OPTIONAL 0
 
+#define CMD_MFLT_EXPORT_DESCRIPTION                                                                \
+	"\n"                                                                                       \
+	"Pull one queued Memfault chunk and print it as MFLT_CHUNK:<base64>.\n"                    \
+	"Works with no Sidewalk link, so a host can collect chunks over BLE and\n"                 \
+	"post them with: memfault --project-key KEY post-chunk --encoding base64 DATA"
+#define CMD_MFLT_EXPORT_ARG_REQUIRED 1
+#define CMD_MFLT_EXPORT_ARG_OPTIONAL 0
+
 #define CMD_MFLT_DRAIN_DESCRIPTION                                                                 \
 	"\n"                                                                                       \
 	"force an immediate Memfault chunk drain cycle on the app TX thread"
@@ -222,6 +230,13 @@ static int cmd_mflt_drain(const struct shell *shell, int32_t argc, const char **
 	return app_memfault_shell_drain(shell);
 }
 
+static int cmd_mflt_export(const struct shell *shell, int32_t argc, const char **argv)
+{
+	CHECK_ARGUMENT_COUNT(argc, CMD_MFLT_EXPORT_ARG_REQUIRED, CMD_MFLT_EXPORT_ARG_OPTIONAL);
+	ARG_UNUSED(argv);
+	return app_memfault_shell_export(shell);
+}
+
 static int cmd_mflt_heartbeat(const struct shell *shell, int32_t argc, const char **argv)
 {
 	CHECK_ARGUMENT_COUNT(argc, CMD_MFLT_HEARTBEAT_ARG_REQUIRED, CMD_MFLT_HEARTBEAT_ARG_OPTIONAL);
@@ -257,6 +272,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      CMD_MFLT_INFO_ARG_REQUIRED, CMD_MFLT_INFO_ARG_OPTIONAL),
 	SHELL_CMD_ARG(drain, NULL, CMD_MFLT_DRAIN_DESCRIPTION, cmd_mflt_drain,
 		      CMD_MFLT_DRAIN_ARG_REQUIRED, CMD_MFLT_DRAIN_ARG_OPTIONAL),
+	SHELL_CMD_ARG(export, NULL, CMD_MFLT_EXPORT_DESCRIPTION, cmd_mflt_export,
+		      CMD_MFLT_EXPORT_ARG_REQUIRED, CMD_MFLT_EXPORT_ARG_OPTIONAL),
 	SHELL_CMD_ARG(heartbeat, NULL, CMD_MFLT_HEARTBEAT_DESCRIPTION, cmd_mflt_heartbeat,
 		      CMD_MFLT_HEARTBEAT_ARG_REQUIRED, CMD_MFLT_HEARTBEAT_ARG_OPTIONAL),
 	SHELL_CMD_ARG(crash, NULL, CMD_MFLT_CRASH_DESCRIPTION, cmd_mflt_crash,

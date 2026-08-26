@@ -18,6 +18,11 @@ typedef enum event_type {
 	APP_EVENT_RESP_LED_ON,
 	APP_EVENT_RESP_LED_OFF,
 	APP_EVENT_MFLT_DRAIN,
+	/* Pull one chunk and print it base64 on the shell instead of sending it
+	 * over Sidewalk. Lets a host collect Memfault data over BLE from a device
+	 * with no Sidewalk link, which is exactly when it is most useful.
+	 */
+	APP_EVENT_MFLT_EXPORT,
 } app_event_t;
 
 int app_tx_event_send(app_event_t event);

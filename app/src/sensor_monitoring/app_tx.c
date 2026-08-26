@@ -412,6 +412,15 @@ static void state_init(void *o)
 	case APP_EVENT_MFLT_DRAIN:
 		/* Not registered yet, nothing to send. */
 		break;
+	case APP_EVENT_MFLT_EXPORT:
+		/* Export needs no link, so it runs here too. An unregistered
+		 * device sits in this state, which is exactly when pulling
+		 * chunks out over BLE is worth having.
+		 */
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+		app_memfault_export_chunk();
+#endif
+		break;
 	}
 }
 
@@ -477,6 +486,15 @@ static void state_notify_capability(void *o)
 	case APP_EVENT_TIME_SYNC_FAIL:
 	case APP_EVENT_MFLT_DRAIN:
 		/* Not registered yet, nothing to send. */
+		break;
+	case APP_EVENT_MFLT_EXPORT:
+		/* Export needs no link, so it runs here too. An unregistered
+		 * device sits in this state, which is exactly when pulling
+		 * chunks out over BLE is worth having.
+		 */
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+		app_memfault_export_chunk();
+#endif
 		break;
 	}
 }
@@ -694,6 +712,11 @@ static void state_notify_data(void *o)
 		 */
 #if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
 		app_memfault_drain();
+#endif
+		break;
+	case APP_EVENT_MFLT_EXPORT:
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+		app_memfault_export_chunk();
 #endif
 		break;
 	case APP_EVENT_TIME_SYNC_FAIL:
