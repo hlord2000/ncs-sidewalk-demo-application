@@ -22,6 +22,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/logging/log_ctrl.h>
 #include <zephyr/sys/reboot.h>
+#include <zephyr/sys/util.h>
 #include <json_printer/sidTypes2Json.h>
 #include <sidewalk_dfu/nordic_dfu.h>
 #ifdef CONFIG_SID_END_DEVICE_PERSISTENT_LINK_MASK
@@ -153,7 +154,59 @@ void sidewalk_event_autostart(sidewalk_ctx_t *sid, void *ctx)
 		LOG_ERR("sid start err %d (%s)", (int)e, SID_ERROR_T_STR(e));
 	}
 
-#if CONFIG_SID_END_DEVICE_AUTO_CONN_REQ
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_MULTI_LINK)
+	/* Hand link selection to the stack instead of running on one link and
+	 * tearing everything down to change it. The links then come up alongside
+	 * each other, so FSK and LoRa can take their time associating without
+	 * dropping Bluetooth LE, time sync or the Memfault chunk drain. Listed
+	 * Bluetooth LE first: priority 0 is highest, and it is the link that
+	 * associates fastest and carries traffic while sub-GHz is still coming up.
+	 */
+	{
+		enum sid_link_connection_policy set_policy =
+			SID_LINK_CONNECTION_POLICY_MULTI_LINK_MANAGER;
+
+		e = sid_option(sid->handle, SID_OPTION_SET_LINK_CONNECTION_POLICY, &set_policy,
+			       sizeof(set_policy));
+		if (e) {
+			LOG_ERR("sid option link connection policy err %d (%s)", (int)e,
+				SID_ERROR_T_STR(e));
+		}
+
+		uint8_t ml_policy = CONFIG_SID_END_DEVICE_MULTI_LINK_POLICY;
+
+		e = sid_option(sid->handle, SID_OPTION_SET_LINK_POLICY_MULTI_LINK_POLICY,
+			       &ml_policy, sizeof(ml_policy));
+		if (e) {
+			LOG_ERR("sid option multi link policy err %d (%s)", (int)e,
+				SID_ERROR_T_STR(e));
+		}
+
+		static const enum sid_link_type ml_links[] = { SID_LINK_TYPE_1, SID_LINK_TYPE_2,
+							       SID_LINK_TYPE_3 };
+
+		for (uint8_t i = 0; i < ARRAY_SIZE(ml_links); i++) {
+			if (!(sid->config.link_mask & (uint32_t)ml_links[i])) {
+				continue;
+			}
+
+			struct sid_link_auto_connect_params ac_params = {
+				.link_type = ml_links[i],
+				.enable = true,
+				.priority = i,
+				.connection_attempt_timeout_seconds =
+					CONFIG_SID_END_DEVICE_MULTI_LINK_CONNECT_TIMEOUT_S,
+			};
+
+			e = sid_option(sid->handle, SID_OPTION_SET_LINK_POLICY_AUTO_CONNECT_PARAMS,
+				       &ac_params, sizeof(ac_params));
+			if (e) {
+				LOG_ERR("sid option auto connect params link %d err %d (%s)",
+					(int)ml_links[i], (int)e, SID_ERROR_T_STR(e));
+			}
+		}
+	}
+#elif CONFIG_SID_END_DEVICE_AUTO_CONN_REQ
 	if (sid->config.link_mask & SID_LINK_TYPE_1) {
 		enum sid_link_connection_policy set_policy =
 			SID_LINK_CONNECTION_POLICY_AUTO_CONNECT;
@@ -177,7 +230,7 @@ void sidewalk_event_autostart(sidewalk_ctx_t *sid, void *ctx)
 			LOG_ERR("sid option multi link policy err %d", (int)e);
 		}
 	}
-#endif /* CONFIG_SID_END_DEVICE_AUTO_CONN_REQ */
+#endif /* CONFIG_SID_END_DEVICE_MULTI_LINK / AUTO_CONN_REQ */
 #ifdef CONFIG_SIDEWALK_FILE_TRANSFER_DFU
 	int dfu_err = boot_write_img_confirmed();
 	if (dfu_err) {

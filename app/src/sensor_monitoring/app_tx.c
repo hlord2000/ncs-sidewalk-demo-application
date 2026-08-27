@@ -115,6 +115,7 @@ static uint32_t last_link_mask_get(void)
 	return last_link_mask;
 }
 
+
 #if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_AUTO_TX)
 static void app_tx_sensor_wake_handler(void)
 {
@@ -297,6 +298,12 @@ static int app_tx_telemetry_send(const struct app_sensor_sample *sample)
 	}
 
 	struct sid_msg_desc telemetry_sid_desc = {
+		/* Left as ANY on purpose: with CONFIG_SID_END_DEVICE_MULTI_LINK the
+		 * stack's multi-link manager spreads traffic over Bluetooth LE, FSK
+		 * and LoRa by itself. Naming a link here does not override it -- 16
+		 * consecutive uplinks all went out over Bluetooth LE while the link
+		 * status mask said BLE|LoRa and the request alternated between them.
+		 */
 		.link_type = SID_LINK_TYPE_ANY,
 		.type = SID_MSG_TYPE_NOTIFY,
 		.link_mode = SID_LINK_MODE_CLOUD,

@@ -48,7 +48,12 @@ void sidewalk_start(sidewalk_ctx_t *context);
 
 int sidewalk_event_send(event_handler_t event, void *ctx, ctx_free free);
 
-#ifdef CONFIG_SIDEWALK_LINK_MASK_BLE
+#ifdef CONFIG_SID_END_DEVICE_MULTI_LINK
+/* Every link this build supports, so the stack's multi-link manager can bring
+ * them up alongside each other rather than one at a time.
+ */
+#define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_1 | SID_LINK_TYPE_2 | SID_LINK_TYPE_3)
+#elif defined(CONFIG_SIDEWALK_LINK_MASK_BLE)
 #define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_1)
 #elif CONFIG_SIDEWALK_LINK_MASK_FSK
 #define DEFAULT_LM (uint32_t)(SID_LINK_TYPE_2)

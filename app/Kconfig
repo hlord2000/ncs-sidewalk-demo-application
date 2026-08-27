@@ -222,6 +222,52 @@ config SID_END_DEVICE_AUTO_CONN_REQ
     default y
     bool "Enable automatic connection request before message send"
 
+config SID_END_DEVICE_MULTI_LINK
+    bool "Let the Sidewalk stack manage Bluetooth LE, FSK and LoRa together"
+    depends on SIDEWALK_SUBGHZ_SUPPORT
+    help
+      Start Sidewalk with a link mask covering every link this build supports
+      and hand link selection to the stack's multi-link manager
+      (SID_LINK_CONNECTION_POLICY_MULTI_LINK_MANAGER), instead of running on a
+      single link and tearing the stack down to change it.
+
+      This is what makes sub-GHz usable in a demo. The alternative,
+      CONFIG_SID_END_DEVICE_SENSOR_LINK_AUTOSWITCH, calls sid_deinit()/sid_init()
+      for every change, so switching to FSK drops Bluetooth LE and time sync and
+      stops all traffic until the cycle comes back. With multi-link the links
+      come up alongside each other and nothing is torn down, so FSK and LoRa can
+      take as long as they need to associate without stalling the demo.
+
+      Supersedes SID_END_DEVICE_AUTO_CONN_REQ: the two connection policies are
+      mutually exclusive, and this one wins where both are set.
+
+if SID_END_DEVICE_MULTI_LINK
+
+config SID_END_DEVICE_MULTI_LINK_POLICY
+    int "Multi-link policy"
+    range 0 4
+    default 0
+    help
+      Passed to SID_OPTION_SET_LINK_POLICY_MULTI_LINK_POLICY:
+        0 - default, all links enabled
+        1 - power save
+        2 - performance, better throughput
+        3 - latency, faster uplinks
+        4 - reliability, longer TTL and more retries
+
+config SID_END_DEVICE_MULTI_LINK_CONNECT_TIMEOUT_S
+    int "How long the stack may spend bringing up each link"
+    range 1 65535
+    default 300
+    help
+      connection_attempt_timeout_seconds in struct sid_link_auto_connect_params,
+      applied per link. Sub-GHz association is slow -- far slower than the 30 s
+      the Bluetooth LE only path uses -- so give it minutes. Bluetooth LE
+      associates long before this expires, and the timeout only bounds the
+      attempt, so a generous value costs nothing when a link is already up.
+
+endif # SID_END_DEVICE_MULTI_LINK
+
 config SID_END_DEVICE_PERSISTENT_LINK_MASK
     bool "Enable persitent link mask"
     help
