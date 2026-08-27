@@ -217,9 +217,9 @@ static const struct device *temp_dev = DEVICE_DT_GET_ONE(nordic_nrf_temp);
 #define HAS_FALLBACK_TEMPERATURE 0
 #endif
 
-static int fallback_temperature_get(int16_t *temp)
+static int fallback_temperature_millicelsius_get(int32_t *temp_mc)
 {
-	if (!temp) {
+	if (!temp_mc) {
 		return -EINVAL;
 	}
 
@@ -241,15 +241,39 @@ static int fallback_temperature_get(int16_t *temp)
 		return -EFAULT;
 	}
 
-	*temp = (int16_t)sensor.val1;
+	/* The die sensor resolves finer than a whole degree, and val2 carries that
+	 * fraction in micro-degrees. Keep it: dropping it turns the demo's
+	 * temperature chart into a 1 degree staircase on boards that have no
+	 * external sensor. Zephyr signs val1 and val2 alike, so this stays correct
+	 * below zero.
+	 */
+	*temp_mc = (int32_t)sensor.val1 * 1000 + sensor.val2 / 1000;
 	return 0;
 #else
 	return -ENODEV;
 #endif
 }
 
+static int fallback_temperature_get(int16_t *temp)
+{
+	if (!temp) {
+		return -EINVAL;
+	}
+
+	int32_t temp_mc;
+	int err = fallback_temperature_millicelsius_get(&temp_mc);
+
+	if (err) {
+		return err;
+	}
+
+	*temp = (int16_t)(temp_mc / 1000);
+	return 0;
+}
+
 static atomic_t accel_wake_pending;
 static app_sensor_wake_handler_t sensor_wake_handler;
+static uint8_t app_sensor_caps;
 
 #if HAS_ADXL367 && IS_ENABLED(CONFIG_ADXL367_TRIGGER)
 static void accel_trigger_handler(const struct device *dev, const struct sensor_trigger *trigger)
@@ -268,6 +292,32 @@ static void accel_trigger_handler(const struct device *dev, const struct sensor_
 int app_sensor_init(app_sensor_wake_handler_t wake_handler)
 {
 	sensor_wake_handler = wake_handler;
+
+	/* Capabilities are derived from what device_is_ready() actually finds on
+	 * this build, not from a per-board table, so a different shield changes
+	 * the mask without touching this file.
+	 */
+	app_sensor_caps = 0;
+#if HAS_SHT4X
+	if (device_is_ready(sht4x_dev)) {
+		app_sensor_caps |= APP_SENSOR_CAP_TEMPERATURE | APP_SENSOR_CAP_HUMIDITY;
+	}
+#endif
+#if HAS_ADXL367
+	if (device_is_ready(accel_dev)) {
+		app_sensor_caps |= APP_SENSOR_CAP_ACCEL;
+	}
+#endif
+#if HAS_FALLBACK_TEMPERATURE
+	if (!(app_sensor_caps & APP_SENSOR_CAP_TEMPERATURE) && device_is_ready(temp_dev)) {
+		app_sensor_caps |= APP_SENSOR_CAP_TEMPERATURE;
+	}
+#endif
+#if HAS_NPM1300_CHARGER
+	if (device_is_ready(pmic_charger_dev)) {
+		app_sensor_caps |= APP_SENSOR_CAP_BATTERY;
+	}
+#endif
 
 #if HAS_ADXL367 && IS_ENABLED(CONFIG_ADXL367_TRIGGER)
 	if (!device_is_ready(accel_dev)) {
@@ -331,6 +381,24 @@ int app_sensor_sample_get(struct app_sensor_sample *sample)
 		}
 	} else {
 		LOG_WRN("SHT4x is not ready");
+	}
+#endif
+
+#if HAS_FALLBACK_TEMPERATURE
+	/* Boards with no external temperature sensor (or a failed SHT4x read)
+	 * still have the SoC die temperature. Feed it into the same sample so
+	 * app_sensor_sample_get() does not return -ENODEV on a board that can
+	 * report at least this much.
+	 */
+	if (!sample->temperature_valid) {
+		int32_t fallback_temp_mc;
+
+		err = fallback_temperature_millicelsius_get(&fallback_temp_mc);
+		if (!err) {
+			sample->temperature_millicelsius = fallback_temp_mc;
+			sample->temperature_valid = true;
+			successes++;
+		}
 	}
 #endif
 
@@ -493,4 +561,9 @@ int app_sensor_temperature_get(int16_t *temp)
 	}
 
 	return fallback_temperature_get(temp);
+}
+
+uint8_t app_sensor_caps_get(void)
+{
+	return app_sensor_caps;
 }

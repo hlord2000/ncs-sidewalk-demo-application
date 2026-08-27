@@ -6,7 +6,37 @@
 
 config SID_END_DEVICE_NOTIFY_DATA_PERIOD_MS
     int "Notify period of sensor monitoring demo app"
-    default 10000
+    default 60000
+    help
+      How often the app TX thread wakes up to sample sensors and send a telemetry
+      uplink. Sidewalk gateways enforce per-device duty-cycle and message-rate
+      limits, and this uplink competes for airtime with the Memfault chunk drain
+      (its own timer, see CONFIG_SID_END_DEVICE_MEMFAULT_DRAIN_INTERVAL_S). 60 s
+      keeps well clear of those limits (roughly 60 uplinks/hour instead of 360)
+      while still feeling live for a demo. Tune it per deployment: shorter for a
+      bench demo next to a gateway, longer for a battery-powered field unit.
+
+config SID_END_DEVICE_NOTIFY_CAPABILITY_RETRY_INITIAL_S
+    int "Initial capability resend interval"
+    range 1 3600
+    default 30
+    help
+      How soon after time sync succeeds the device first resends the capability
+      discovery message if the cloud has not acknowledged it yet. Deliberately
+      decoupled from CONFIG_SID_END_DEVICE_NOTIFY_DATA_PERIOD_MS: the capability
+      message is low-value traffic (its payload is empty on boards with no
+      sensors) and should not be forced onto the same cadence as telemetry.
+
+config SID_END_DEVICE_NOTIFY_CAPABILITY_RETRY_MAX_S
+    int "Maximum capability resend interval"
+    range 1 3600
+    default 300
+    help
+      Upper bound for the capability resend backoff. Each unacknowledged resend
+      doubles the wait, capped here, so a device that never receives a capability
+      ack (no downlink support, or the network has none to send) settles at one
+      resend every 5 minutes instead of hammering the network on every notify
+      period forever.
 
 config SID_END_DEVICE_SENSOR_TELEMETRY_PAYLOAD
     bool "Send compact Sidewalk sensor telemetry payload"
@@ -45,6 +75,33 @@ config SID_END_DEVICE_SENSOR_AUTOSWITCH_LORA_DELAY_S
     int "Delay before switching from FSK to BLE plus LoRa"
     range 1 600
     default 60
+
+config SID_END_DEVICE_SENSOR_AUTOSWITCH_ROTATE_PERIOD_S
+    int "Time to dwell on BLE between link excursions"
+    range 60 86400
+    default 1800
+    help
+      Once the initial BLE -> FSK -> BLE+LoRa pass finishes, the demo keeps
+      cycling through the same three link states forever so all three get
+      exercised occasionally. This is how long it dwells on plain BLE, the link
+      that carries telemetry and the Memfault drain, before the next excursion.
+      30 minutes leaves BLE undisturbed for a long stretch on a network with
+      duty-cycle limits, while still visiting FSK and LoRa a few times an hour
+      on a demo that keeps running.
+
+config SID_END_DEVICE_SENSOR_AUTOSWITCH_FALLBACK_TIMEOUT_S
+    int "Time to wait for an FSK/LoRa excursion before moving on"
+    range 5 600
+    default 30
+    help
+      How long the rotation waits after switching to FSK or to BLE+LoRa before
+      checking sid_status link_status_mask and moving on to the next link
+      regardless of the result. The FSK phase drops BLE entirely, so this also
+      bounds how long the Memfault drain and telemetry uplinks go without any
+      link if FSK, or later LoRa, never reports link-up, which is the expected
+      outcome on hardware with no gateway on those bands. 30 s gives a real
+      gateway time to associate without leaving BLE dark for long when there is
+      none.
 
 endif # SID_END_DEVICE_SENSOR_LINK_AUTOSWITCH
 

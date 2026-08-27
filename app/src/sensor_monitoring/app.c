@@ -83,11 +83,94 @@ static void notify_timer_cb(struct k_timer *timer_id)
 #endif
 
 #if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_LINK_AUTOSWITCH)
+/* sidewalk_event_link_switch() (sidewalk_events.c) cycles the real link_mask
+ * on its own: BLE -> FSK -> BLE+LoRa -> BLE -> ... This phase mirror lets app.c
+ * pick a dwell time and log a fallback message without needing a getter into
+ * that state; it is advisory only, since the real cycle always resolves from
+ * the live link_mask regardless of what this file thinks the phase is.
+ */
+enum sensor_link_phase {
+	SENSOR_LINK_PHASE_BLE,
+	SENSOR_LINK_PHASE_FSK,
+	SENSOR_LINK_PHASE_BLE_LORA,
+};
+
+static enum sensor_link_phase sensor_link_phase = SENSOR_LINK_PHASE_BLE;
+static uint32_t sensor_link_status_mask;
+
 static void sensor_auto_switch_to_fsk(struct k_work *work);
 static void sensor_auto_switch_to_lora(struct k_work *work);
+static void sensor_link_rotate_work_handler(struct k_work *work);
 
 static K_WORK_DELAYABLE_DEFINE(sensor_switch_to_fsk_work, sensor_auto_switch_to_fsk);
 static K_WORK_DELAYABLE_DEFINE(sensor_switch_to_lora_work, sensor_auto_switch_to_lora);
+static K_WORK_DELAYABLE_DEFINE(sensor_link_rotate_work, sensor_link_rotate_work_handler);
+
+static const char *sensor_link_phase_name(enum sensor_link_phase phase)
+{
+	switch (phase) {
+	case SENSOR_LINK_PHASE_FSK:
+		return "FSK";
+	case SENSOR_LINK_PHASE_BLE_LORA:
+		return "BLE+LoRa";
+	default:
+		return "BLE";
+	}
+}
+
+static uint32_t sensor_link_phase_expected_mask(enum sensor_link_phase phase)
+{
+	switch (phase) {
+	case SENSOR_LINK_PHASE_FSK:
+		return SID_LINK_TYPE_2;
+	case SENSOR_LINK_PHASE_BLE_LORA:
+		return SID_LINK_TYPE_3;
+	default:
+		return SID_LINK_TYPE_1;
+	}
+}
+
+static enum sensor_link_phase sensor_link_phase_next(enum sensor_link_phase phase)
+{
+	switch (phase) {
+	case SENSOR_LINK_PHASE_BLE:
+		return SENSOR_LINK_PHASE_FSK;
+	case SENSOR_LINK_PHASE_FSK:
+		return SENSOR_LINK_PHASE_BLE_LORA;
+	default:
+		return SENSOR_LINK_PHASE_BLE;
+	}
+}
+
+static uint32_t sensor_link_phase_dwell_s(enum sensor_link_phase phase)
+{
+	return (phase == SENSOR_LINK_PHASE_BLE) ?
+		       CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_ROTATE_PERIOD_S :
+		       CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_FALLBACK_TIMEOUT_S;
+}
+
+/* Log whether the excursion that is about to end actually came up. FSK and
+ * LoRa are excursions off BLE that this hardware has never been observed to
+ * complete; a miss here is the expected outcome, not fatal, since the caller
+ * always advances the cycle regardless and it always returns to plain BLE
+ * within two steps.
+ */
+static void sensor_link_check_phase(enum sensor_link_phase phase)
+{
+	if (phase == SENSOR_LINK_PHASE_BLE) {
+		return;
+	}
+
+	uint32_t expected = sensor_link_phase_expected_mask(phase);
+
+	if (sensor_link_status_mask & expected) {
+		LOG_INF("Sensor link %s came up", sensor_link_phase_name(phase));
+	} else {
+		LOG_WRN("Sensor link %s did not come up within %d s, falling back",
+			sensor_link_phase_name(phase),
+			CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_FALLBACK_TIMEOUT_S);
+	}
+}
 
 static void sensor_auto_switch_to_fsk(struct k_work *work)
 {
@@ -96,6 +179,8 @@ static void sensor_auto_switch_to_fsk(struct k_work *work)
 #if defined(CONFIG_SID_END_DEVICE_CLI)
 	if (dut_flow_mode_is_enabled()) {
 		LOG_INF("Sensor auto-switch to FSK skipped while hello-flow owns Sidewalk");
+		k_work_schedule(&sensor_switch_to_fsk_work,
+				K_SECONDS(CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_FSK_DELAY_S));
 		return;
 	}
 #endif
@@ -103,6 +188,7 @@ static void sensor_auto_switch_to_fsk(struct k_work *work)
 	LOG_INF("Sensor auto-switch to FSK");
 	app_rtt_trace("app sensor auto-switch to FSK\n");
 	(void)sidewalk_event_send(sidewalk_event_link_switch, NULL, NULL);
+	sensor_link_phase = SENSOR_LINK_PHASE_FSK;
 }
 
 static void sensor_auto_switch_to_lora(struct k_work *work)
@@ -112,13 +198,48 @@ static void sensor_auto_switch_to_lora(struct k_work *work)
 #if defined(CONFIG_SID_END_DEVICE_CLI)
 	if (dut_flow_mode_is_enabled()) {
 		LOG_INF("Sensor auto-switch to BLE+LoRa skipped while hello-flow owns Sidewalk");
+		k_work_schedule(&sensor_switch_to_lora_work,
+				K_SECONDS(CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_LORA_DELAY_S));
 		return;
 	}
 #endif
 
+	sensor_link_check_phase(SENSOR_LINK_PHASE_FSK);
+
 	LOG_INF("Sensor auto-switch to BLE+LoRa");
 	app_rtt_trace("app sensor auto-switch to BLE+LoRa\n");
 	(void)sidewalk_event_send(sidewalk_event_link_switch, NULL, NULL);
+	sensor_link_phase = SENSOR_LINK_PHASE_BLE_LORA;
+
+	/* Hand off to the recurring rotation so the demo keeps cycling through
+	 * all three links instead of stopping after a single pass.
+	 */
+	k_work_schedule(&sensor_link_rotate_work,
+			K_SECONDS(CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_FALLBACK_TIMEOUT_S));
+}
+
+static void sensor_link_rotate_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+#if defined(CONFIG_SID_END_DEVICE_CLI)
+	if (dut_flow_mode_is_enabled()) {
+		LOG_INF("Sensor link rotation skipped while hello-flow owns Sidewalk");
+		k_work_schedule(&sensor_link_rotate_work,
+				K_SECONDS(CONFIG_SID_END_DEVICE_SENSOR_AUTOSWITCH_ROTATE_PERIOD_S));
+		return;
+	}
+#endif
+
+	sensor_link_check_phase(sensor_link_phase);
+	sensor_link_phase = sensor_link_phase_next(sensor_link_phase);
+
+	LOG_INF("Sensor link rotation advance to %s", sensor_link_phase_name(sensor_link_phase));
+	app_rtt_trace("app sensor link rotation advance\n");
+	(void)sidewalk_event_send(sidewalk_event_link_switch, NULL, NULL);
+
+	k_work_schedule(&sensor_link_rotate_work,
+			K_SECONDS(sensor_link_phase_dwell_s(sensor_link_phase)));
 }
 #endif
 
@@ -230,6 +351,10 @@ static void on_sidewalk_status_changed(const struct sid_status *status, void *co
 	}
 
 	app_tx_last_link_mask_set(status->detail.link_status_mask);
+
+#if IS_ENABLED(CONFIG_SID_END_DEVICE_SENSOR_LINK_AUTOSWITCH)
+	sensor_link_status_mask = status->detail.link_status_mask;
+#endif
 
 	if (SID_STATUS_TIME_SYNCED == status->detail.time_sync_status) {
 		err = app_tx_event_send(APP_EVENT_TIME_SYNC_SUCCESS);

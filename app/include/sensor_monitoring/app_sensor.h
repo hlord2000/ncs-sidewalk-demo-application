@@ -9,6 +9,21 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <zephyr/sys/util.h>
+
+/**
+ * @brief Sensor capability bits, one per sensor class app_sensor_sample_get() can fill.
+ *
+ * Derived once at app_sensor_init() from device_is_ready() on the aliased devicetree
+ * nodes, so the mask reflects whatever shield or SoC peripheral is actually present
+ * on this build rather than a hardcoded per-board table.
+ */
+enum app_sensor_cap {
+	APP_SENSOR_CAP_TEMPERATURE = BIT(0),
+	APP_SENSOR_CAP_HUMIDITY = BIT(1),
+	APP_SENSOR_CAP_ACCEL = BIT(2),
+	APP_SENSOR_CAP_BATTERY = BIT(3),
+};
 
 struct app_sensor_sample {
 	bool temperature_valid;
@@ -53,5 +68,14 @@ int app_sensor_sample_get(struct app_sensor_sample *sample);
  * @return 0 if successful, negative errno code if failure.
  */
 int app_sensor_temperature_get(int16_t *temp);
+
+/**
+ * @brief Get the sensor capability bitmask detected for this board.
+ *
+ * Valid once app_sensor_init() has run; before that it reads as 0.
+ *
+ * @return Bitwise OR of APP_SENSOR_CAP_* for every sensor found ready.
+ */
+uint8_t app_sensor_caps_get(void);
 
 #endif /* APP_SENSOR_H */

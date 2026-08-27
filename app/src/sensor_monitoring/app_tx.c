@@ -54,14 +54,23 @@ enum state {
 };
 
 static void state_init(void *o);
+static void state_notify_capability_entry(void *o);
 static void state_notify_capability(void *o);
 static void state_notify_data(void *o);
 static const struct smf_state app_states[] = {
 	[STATE_APP_INIT] = SMF_CREATE_STATE(NULL, state_init, NULL, NULL, NULL),
-	[STATE_APP_NOTIFY_CAPABILITY] =
-		SMF_CREATE_STATE(NULL, state_notify_capability, NULL, NULL, NULL),
+	[STATE_APP_NOTIFY_CAPABILITY] = SMF_CREATE_STATE(state_notify_capability_entry,
+							 state_notify_capability, NULL, NULL, NULL),
 	[STATE_APP_NOTIFY_DATA] = SMF_CREATE_STATE(NULL, state_notify_data, NULL, NULL, NULL),
 };
+
+/* Capability resends back off on their own schedule instead of following
+ * CONFIG_SID_END_DEVICE_NOTIFY_DATA_PERIOD_MS: the message is low value (its
+ * payload is often empty), so it should not compete for airtime with
+ * telemetry at the same cadence.
+ */
+static uint32_t capability_retry_interval_s;
+static int64_t capability_next_retry_uptime_ms;
 
 static uint8_t __aligned(4)
 	app_msgq_buff[CONFIG_SID_END_DEVICE_TX_THREAD_QUEUE_SIZE * sizeof(app_event_t)];
@@ -232,11 +241,21 @@ static int app_tx_telemetry_payload_format(const struct app_sensor_sample *sampl
 	char chg_buf[8];
 	char err_buf[8];
 
+	/* "caps" is a runtime bitmask of which sensors resolved on this board, so
+	 * the backend/dashboard know what to draw without a separate round trip:
+	 *   bit0 (1) temperature      -> t_mc populated
+	 *   bit1 (2) humidity         -> rh_mpc populated
+	 *   bit2 (4) accelerometer    -> ax_mms2/ay_mms2/az_mms2 populated
+	 *   bit3 (8) battery/gauge    -> bat_mv/ibat_ua/bat_pct populated
+	 * See enum app_sensor_cap. 0 means detection ran and found nothing; this
+	 * firmware always has a detected value by the time it sends telemetry, so
+	 * the key is always present, never omitted for "unknown".
+	 */
 	int len = snprintk(
 		(char *)payload, payload_size,
 		"{\"t_mc\":%s,\"rh_mpc\":%s,\"ax_mms2\":%s,\"ay_mms2\":%s,"
 		"\"az_mms2\":%s,\"bat_mv\":%s,\"ibat_ua\":%s,\"bat_pct\":%s,"
-		"\"vbus\":%s,\"chg\":%s,\"err\":%s,\"wake\":%s}",
+		"\"vbus\":%s,\"chg\":%s,\"err\":%s,\"wake\":%s,\"caps\":%u}",
 		json_int_or_null(sample->temperature_valid, sample->temperature_millicelsius,
 				 t_buf, sizeof(t_buf)),
 		json_int_or_null(sample->humidity_valid, (int32_t)sample->humidity_millipercent,
@@ -258,7 +277,7 @@ static int app_tx_telemetry_payload_format(const struct app_sensor_sample *sampl
 				 sizeof(chg_buf)),
 		json_int_or_null(sample->pmic_valid, sample->charger_error, err_buf,
 				 sizeof(err_buf)),
-		sample->accel_wake ? "true" : "false");
+		sample->accel_wake ? "true" : "false", (unsigned int)app_sensor_caps_get());
 
 	if (len < 0 || len >= (int)payload_size) {
 		return -EMSGSIZE;
@@ -424,6 +443,14 @@ static void state_init(void *o)
 	}
 }
 
+static void state_notify_capability_entry(void *o)
+{
+	ARG_UNUSED(o);
+
+	capability_retry_interval_s = CONFIG_SID_END_DEVICE_NOTIFY_CAPABILITY_RETRY_INITIAL_S;
+	capability_next_retry_uptime_ms = 0;
+}
+
 static void state_notify_capability(void *o)
 {
 	app_sm_t *sm = (app_sm_t *)o;
@@ -434,10 +461,32 @@ static void state_notify_capability(void *o)
 		app_tx_sensor_sample_get_and_log("capability");
 #endif
 
+		int64_t now_ms = k_uptime_get();
+
+		if (now_ms < capability_next_retry_uptime_ms) {
+			/* Not due yet; the notify timer ticks far more often than
+			 * capability should resend, so most ticks land here.
+			 */
+			break;
+		}
+
+		capability_next_retry_uptime_ms =
+			now_ms + (int64_t)capability_retry_interval_s * 1000;
+		capability_retry_interval_s =
+			MIN(capability_retry_interval_s * 2,
+			    CONFIG_SID_END_DEVICE_NOTIFY_CAPABILITY_RETRY_MAX_S);
+
+		/* Report what this board actually has instead of always claiming
+		 * Celsius support: a board with no temperature sensor at all (none
+		 * of SHT4x, BME680, or the SoC die sensor) should say so.
+		 */
+		bool has_temp = (app_sensor_caps_get() & APP_SENSOR_CAP_TEMPERATURE) != 0;
+
 		// Prepare message
 		struct sid_demo_capability_discovery cap = {
 			.link_type = last_link_mask_get(),
-			.temp_sensor = SID_DEMO_TEMPERATURE_SENSOR_UNITS_CELSIUS,
+			.temp_sensor = has_temp ? SID_DEMO_TEMPERATURE_SENSOR_UNITS_CELSIUS :
+						  SID_DEMO_TEMPERATURE_SENSOR_NOT_SUPPORTED,
 			.button_id_arr = app_btn_id_array_get(),
 			.num_buttons = APP_BUTTONS_MAX,
 			.led_id_arr = app_led_id_array_get(),
