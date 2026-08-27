@@ -22,6 +22,7 @@
 #endif
 
 #include <memfault/core/data_packetizer.h>
+#include <memfault/panics/assert.h>
 #include <memfault/core/platform/device_info.h>
 #include <memfault/demo/cli.h>
 #include <memfault/metrics/metrics.h>
@@ -392,6 +393,44 @@ void sidewalk_event_mflt_mtu_query(sidewalk_ctx_t *sid, void *ctx)
 	LOG_WRN("Memfault could not read an MTU from any link; drain will use its fallback");
 }
 
+/* Crash and reboot triggers that do not need a shell.
+ *
+ * Reachable from a Sidewalk downlink (see app_rx.c) so a crash can be requested
+ * remotely: the device faults, the Memfault fault handler records the reason,
+ * and the reboot event is drained over Sidewalk on the next boot. Note that no
+ * coredump is uploaded -- app_memfault_init() restricts the packetizer to event
+ * data -- so what shows up in Memfault is a reboot with its reason, not a
+ * symbolicated stack trace.
+ */
+int app_memfault_trigger_crash(int crash_type)
+{
+	switch (crash_type) {
+	case APP_MEMFAULT_CRASH_ASSERT:
+		LOG_WRN("Memfault crash requested: MEMFAULT_ASSERT(0)");
+		MEMFAULT_ASSERT(0);
+		return 0;
+	case APP_MEMFAULT_CRASH_HARDFAULT: {
+		LOG_WRN("Memfault crash requested: HardFault");
+		/* Call through an address that cannot be executed. The fault
+		 * handler runs before the reset, so the reason is recorded.
+		 */
+		void (*bad_func)(void) = (void (*)(void))0xEEEEDEAD;
+
+		bad_func();
+		return 0;
+	}
+	default:
+		LOG_ERR("Unknown Memfault crash type %d", crash_type);
+		return -EINVAL;
+	}
+}
+
+int app_memfault_trigger_reboot(void)
+{
+	LOG_INF("Memfault reboot requested");
+	return memfault_demo_cli_cmd_system_reboot(0, NULL);
+}
+
 #if defined(CONFIG_SHELL)
 
 int app_memfault_shell_info(const struct shell *shell)
@@ -446,17 +485,12 @@ int app_memfault_shell_heartbeat(const struct shell *shell)
 int app_memfault_shell_crash(const struct shell *shell, int crash_type)
 {
 	switch (crash_type) {
-	case 0:
+	case APP_MEMFAULT_CRASH_ASSERT:
 		shell_print(shell, "Triggering MEMFAULT_ASSERT(0)");
-		return memfault_demo_cli_cmd_assert(0, NULL);
-	case 1:
-#if MEMFAULT_COMPILER_ARM_CORTEX_M
+		return app_memfault_trigger_crash(APP_MEMFAULT_CRASH_ASSERT);
+	case APP_MEMFAULT_CRASH_HARDFAULT:
 		shell_print(shell, "Triggering a HardFault");
-		return memfault_demo_cli_cmd_hardfault(0, NULL);
-#else
-		shell_error(shell, "HardFault demo is only available on Cortex-M");
-		return -ENOTSUP;
-#endif
+		return app_memfault_trigger_crash(APP_MEMFAULT_CRASH_HARDFAULT);
 	default:
 		shell_error(shell, "Usage: \"mflt crash <n>\" where n is 0 (assert) or 1 (hardfault)");
 		return -EINVAL;
@@ -466,7 +500,7 @@ int app_memfault_shell_crash(const struct shell *shell, int crash_type)
 int app_memfault_shell_reboot(const struct shell *shell)
 {
 	shell_print(shell, "Rebooting");
-	return memfault_demo_cli_cmd_system_reboot(0, NULL);
+	return app_memfault_trigger_reboot();
 }
 
 #endif /* CONFIG_SHELL */

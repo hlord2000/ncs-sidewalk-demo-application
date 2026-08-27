@@ -176,10 +176,16 @@ config SID_END_DEVICE_MEMFAULT_BATTERY_METRICS
 
 config SID_END_DEVICE_MEMFAULT_DRAIN_INTERVAL_S
     int "Memfault chunk drain interval in seconds"
-    default 60
+    default 300
     help
       Period of the timer that queues a Memfault packetizer drain cycle
       onto the Sidewalk app TX thread.
+
+      A heartbeat is two chunks, so a 60 s drain put four Memfault uplinks a
+      minute on the air alongside telemetry and swamped the message log. The
+      heartbeat itself is collected once a minute regardless; draining every
+      5 minutes just batches what has accumulated, and the packetizer keeps
+      the backlog in event storage until then.
 
 config SID_END_DEVICE_MEMFAULT_DRAIN_MAX_CHUNKS
     int "Maximum Memfault chunks drained per drain cycle"

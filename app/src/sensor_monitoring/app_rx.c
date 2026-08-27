@@ -9,6 +9,9 @@
 #include <sensor_monitoring/app_buttons.h>
 #include <sensor_monitoring/app_leds.h>
 #include <sid_demo_parser.h>
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+#include <memfault/app_memfault.h>
+#endif
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
@@ -49,6 +52,51 @@ static void app_rx_button_resp_process(struct sid_demo_msg *msg)
 		app_btn_press_mask_bit_clear(action_resp.button_action_resp.button_id_arr[i]);
 		app_btn_notify_mask_bit_clear(action_resp.button_action_resp.button_id_arr[i]);
 	}
+}
+
+/* Diagnostic downlinks.
+ *
+ * sid_demo's descriptor byte carries a 2 bit command class and the demo protocol
+ * only ever uses class 0, so class 1 is free for device diagnostics without
+ * touching the demo message definitions. The whole downlink is one byte, which
+ * matters on a link whose payload budget can be 19 bytes:
+ *
+ *   0x28 = WRITE, class 1, cmd 0 -> crash (MEMFAULT_ASSERT)
+ *   0x29 = WRITE, class 1, cmd 1 -> crash (HardFault)
+ *   0x2a = WRITE, class 1, cmd 2 -> clean reboot
+ *
+ * The device faults, the Memfault fault handler records the reason, and the
+ * reboot event is drained over Sidewalk on the next boot.
+ */
+#define APP_RX_DIAG_CLASS 0x1
+#define APP_RX_DIAG_CMD_CRASH_ASSERT 0x0
+#define APP_RX_DIAG_CMD_CRASH_HARDFAULT 0x1
+#define APP_RX_DIAG_CMD_REBOOT 0x2
+
+static void app_rx_diag_process(const struct sid_demo_msg_desc *msg_desc)
+{
+#if defined(CONFIG_SID_END_DEVICE_MEMFAULT)
+	switch (msg_desc->cmd_id) {
+	case APP_RX_DIAG_CMD_CRASH_ASSERT:
+		LOG_WRN("Diagnostic downlink: crash (assert) requested");
+		(void)app_memfault_trigger_crash(APP_MEMFAULT_CRASH_ASSERT);
+		break;
+	case APP_RX_DIAG_CMD_CRASH_HARDFAULT:
+		LOG_WRN("Diagnostic downlink: crash (hardfault) requested");
+		(void)app_memfault_trigger_crash(APP_MEMFAULT_CRASH_HARDFAULT);
+		break;
+	case APP_RX_DIAG_CMD_REBOOT:
+		LOG_WRN("Diagnostic downlink: reboot requested");
+		(void)app_memfault_trigger_reboot();
+		break;
+	default:
+		LOG_ERR("Diagnostic downlink cmd %d not supported", msg_desc->cmd_id);
+		break;
+	}
+#else
+	ARG_UNUSED(msg_desc);
+	LOG_WRN("Diagnostic downlink ignored: Memfault support is not enabled");
+#endif
 }
 
 static void app_rx_led_req_process(struct sid_demo_msg *msg)
@@ -119,6 +167,13 @@ void app_rx_task(void *dummy1, void *dummy2, void *dummy3)
 					msg.payload_size);
 			} else {
 				LOG_ERR("Rx msg de-serialize failed %d", state.ret_code);
+				continue;
+			}
+
+			// Diagnostics ride on their own command class, handled
+			// before the demo class check below rejects it.
+			if (msg_desc.cmd_class == APP_RX_DIAG_CLASS) {
+				app_rx_diag_process(&msg_desc);
 				continue;
 			}
 

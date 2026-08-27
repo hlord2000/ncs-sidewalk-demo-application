@@ -111,6 +111,23 @@ int app_memfault_shell_info(const struct shell *shell);
 int app_memfault_shell_drain(const struct shell *shell);
 int app_memfault_shell_export(const struct shell *shell);
 int app_memfault_shell_heartbeat(const struct shell *shell);
+/** Crash types accepted by app_memfault_trigger_crash(). */
+enum app_memfault_crash_type {
+	APP_MEMFAULT_CRASH_ASSERT = 0,
+	APP_MEMFAULT_CRASH_HARDFAULT = 1,
+};
+
+/**
+ * @brief Fault the device on purpose so Memfault records why it rebooted.
+ *
+ * Safe to call from any thread; it does not return on success. Used by both the
+ * shell and the Sidewalk downlink handler in app_rx.c.
+ */
+int app_memfault_trigger_crash(int crash_type);
+
+/** @brief Reboot cleanly, recording the reason for Memfault. */
+int app_memfault_trigger_reboot(void);
+
 int app_memfault_shell_crash(const struct shell *shell, int crash_type);
 int app_memfault_shell_reboot(const struct shell *shell);
 

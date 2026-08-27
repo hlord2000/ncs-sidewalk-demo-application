@@ -6,15 +6,18 @@
 
 config SID_END_DEVICE_NOTIFY_DATA_PERIOD_MS
     int "Notify period of sensor monitoring demo app"
-    default 60000
+    default 300000
     help
       How often the app TX thread wakes up to sample sensors and send a telemetry
       uplink. Sidewalk gateways enforce per-device duty-cycle and message-rate
       limits, and this uplink competes for airtime with the Memfault chunk drain
-      (its own timer, see CONFIG_SID_END_DEVICE_MEMFAULT_DRAIN_INTERVAL_S). 60 s
-      keeps well clear of those limits (roughly 60 uplinks/hour instead of 360)
-      while still feeling live for a demo. Tune it per deployment: shorter for a
-      bench demo next to a gateway, longer for a battery-powered field unit.
+      (its own timer, see CONFIG_SID_END_DEVICE_MEMFAULT_DRAIN_INTERVAL_S). Each
+      notify period sends more than one uplink -- the demo binary notify and the
+      JSON telemetry payload -- and the drain adds two more chunks, so a short
+      period floods the message log. 5 minutes is about 12 telemetry uplinks an
+      hour, which still looks live on a dashboard without burying everything
+      else. Tune it per deployment: shorter for a bench demo next to a gateway,
+      longer for a battery-powered field unit.
 
 config SID_END_DEVICE_NOTIFY_CAPABILITY_RETRY_INITIAL_S
     int "Initial capability resend interval"
